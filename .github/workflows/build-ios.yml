@@ -17,24 +17,48 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Check build environment
+      - name: Check environment
         run: |
-          uname -m
+          set -euxo pipefail
+          uname -a
+          brew --prefix
           xcodebuild -version
-          xcode-select -p
+          cmake --version
+          ninja --version
 
       - name: Install dependencies
         run: |
+          set -euxo pipefail
           brew install cmake ninja vulkan-headers shaderc vulkan-loader
 
-      - name: Compile PT-iOS
+      - name: Verify Vulkan tools
         run: |
-          ./script/build_ios.sh
+          set -euxo pipefail
+          ls -l /opt/homebrew/include/vulkan/vulkan.h
+          ls -l /opt/homebrew/lib/libvulkan.dylib
+          ls -l /opt/homebrew/bin/glslc
+
+      - name: Compile PT-iOS
+        id: compile
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash -x ./script/build_ios.sh 2>&1 | tee "$RUNNER_TEMP/pt-ios-build.log"
 
       - name: Upload IPA
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PT-iOS-unsigned
           path: dist/PT-iOS-unsigned.ipa
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PT-iOS-build-log
+          path: ${{ runner.temp }}/pt-ios-build.log
+          if-no-files-found: warn
           retention-days: 7
