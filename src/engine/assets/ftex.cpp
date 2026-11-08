@@ -2,14 +2,20 @@
 
 #include <zlib.h>
 
+#include <bc7decomp.h>
+#include <rgbcx.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <limits>
 #include <optional>
+#include <new>
 
 #include "engine/core/log.h"
+#include "engine/core/parallel_for.h"
 #include "engine/core/pathcode.h"
 #include "engine/fs/io_stats.h"
 #include "engine/fs/mods.h"
@@ -215,17 +221,29 @@ uint16_t To565(const float* rgb) {
 }
 
 bool DecodeFtexLevel(const FtexTexture& ftex, uint32_t level, std::vector<uint8_t>& rgba) {
-    if (level >= ftex.mips.size() || ftex.mips[level].empty()) {
-        return false;
-    }
+    return DecodeFtexSubresource(ftex, 0, level, rgba);
+}
+
+bool DecodeFtexSubresource(const FtexTexture& ftex, uint32_t face, uint32_t level, std::vector<uint8_t>& rgba) {
+    if (face >= ftex.faces || level >= ftex.mip_count) return false;
+    const size_t subresource = static_cast<size_t>(face) * ftex.mip_count + level;
+    if (subresource >= ftex.mips.size() || ftex.mips[subresource].empty()) return false;
+
     const uint32_t width = ftex.MipWidth(level);
     const uint32_t height = ftex.MipHeight(level);
-    const std::vector<uint8_t>& data = ftex.mips[level];
-    rgba.assign(static_cast<size_t>(width) * height * 4, 0);
+    if (!width || !height || width > 16384 || height > 16384) return false;
+    const std::vector<uint8_t>& data = ftex.mips[subresource];
+    const uint64_t pixel_count = static_cast<uint64_t>(width) * height;
+    if (pixel_count > (std::numeric_limits<size_t>::max() / 4)) return false;
+    try {
+        rgba.assign(static_cast<size_t>(pixel_count) * 4, 0);
+    } catch (const std::bad_alloc&) {
+        rgba.clear();
+        return false;
+    }
+
     if (ftex.pixel_format == 0) {
-        if (data.size() < rgba.size()) {
-            return false;
-        }
+        if (data.size() < rgba.size()) return false;
         for (size_t i = 0; i < rgba.size(); i += 4) {
             rgba[i] = data[i + 2];
             rgba[i + 1] = data[i + 1];
@@ -234,41 +252,72 @@ bool DecodeFtexLevel(const FtexTexture& ftex, uint32_t level, std::vector<uint8_
         }
         return true;
     }
+
+    // P.T. uses BC1/2/3/5/7. BC5 is a two-channel normal-map format; preserve its
+    // R/G channels and the Vulkan sampling convention (B=0, A=1).
     const int format = ftex.pixel_format;
-    if (format < 2 || format > 4) {
-        return false;
-    }
+    if (format < 2 || (format > 5 && format != 8)) return false;
     const size_t block_size = format == 2 ? 8 : 16;
-    const uint32_t bw = (width + 3) / 4;
-    const uint32_t bh = (height + 3) / 4;
-    if (data.size() < block_size * bw * bh) {
-        return false;
-    }
-    for (uint32_t by = 0; by < bh; ++by) {
-        for (uint32_t bx = 0; bx < bw; ++bx) {
-            const uint8_t* b = data.data() + block_size * (static_cast<size_t>(by) * bw + bx);
-            uint8_t px[16][4];
-            if (format == 2) {
-                DecodeColorBlock(b, false, px);
-            } else {
-                DecodeColorBlock(b + 8, true, px);
-                if (format == 3) {
-                    for (int p = 0; p < 16; ++p) {
-                        const int nibble = (b[p / 2] >> (4 * (p & 1))) & 15;
-                        px[p][3] = static_cast<uint8_t>(nibble * 17);
+    const uint32_t blocks_x = (width + 3) / 4;
+    const uint32_t blocks_y = (height + 3) / 4;
+    const uint64_t required = static_cast<uint64_t>(block_size) * blocks_x * blocks_y;
+    if (required > data.size()) return false;
+
+    std::atomic<bool> invalid_block{false};
+    const auto decode_rows = [&](size_t first_row, size_t last_row) {
+        for (size_t by = first_row; by < last_row && !invalid_block.load(std::memory_order_relaxed); ++by) {
+            for (uint32_t bx = 0; bx < blocks_x; ++bx) {
+                const uint8_t* block = data.data() + block_size * (by * blocks_x + bx);
+                uint8_t pixels[16][4]{};
+                for (auto& pixel : pixels) pixel[3] = 255;
+
+                if (format == 2) {
+                    DecodeColorBlock(block, false, pixels);
+                } else if (format == 3 || format == 4) {
+                    DecodeColorBlock(block + 8, true, pixels);
+                    if (format == 3) {
+                        for (int p = 0; p < 16; ++p) {
+                            const int nibble = (block[p / 2] >> (4 * (p & 1))) & 15;
+                            pixels[p][3] = static_cast<uint8_t>(nibble * 17);
+                        }
+                    } else {
+                        DecodeAlphaBlock(block, pixels);
                     }
-                } else {
-                    DecodeAlphaBlock(b, px);
+                } else if (format == 5) {
+                    rgbcx::unpack_bc5(block, &pixels[0][0], 0, 1, 4);
+                } else { // BC7: all eight BC7 modes, not just the two encoder modes.
+                    bc7decomp::color_rgba decoded[16];
+                    if (!bc7decomp::unpack_bc7(block, decoded)) {
+                        invalid_block.store(true, std::memory_order_relaxed);
+                        break;
+                    }
+                    for (int p = 0; p < 16; ++p) {
+                        std::copy_n(decoded[p].m_comps, 4, pixels[p]);
+                    }
                 }
-            }
-            for (int p = 0; p < 16; ++p) {
-                const uint32_t x = bx * 4 + (p & 3);
-                const uint32_t y = by * 4 + (p >> 2);
-                if (x < width && y < height) {
-                    std::copy_n(px[p], 4, &rgba[(static_cast<size_t>(y) * width + x) * 4]);
+
+                for (int p = 0; p < 16; ++p) {
+                    const uint32_t x = bx * 4 + (p & 3);
+                    const uint32_t y = static_cast<uint32_t>(by) * 4 + (p >> 2);
+                    if (x < width && y < height) {
+                        std::copy_n(pixels[p], 4, &rgba[(static_cast<size_t>(y) * width + x) * 4]);
+                    }
                 }
             }
         }
+    };
+    // Avoid nested use of the shared worker pool: a worker decodes its own mip serially,
+    // while the main thread can fan out large uploads across the pool.
+    if (IsPoolThread()) {
+        decode_rows(0, blocks_y);
+    } else {
+        ParallelChunks(blocks_y, ParallelChunkCount(blocks_y, 8), [&](size_t, size_t first_row, size_t last_row) {
+            decode_rows(first_row, last_row);
+        });
+    }
+    if (invalid_block.load(std::memory_order_relaxed)) {
+        rgba.clear();
+        return false;
     }
     return true;
 }

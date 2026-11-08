@@ -35,6 +35,7 @@ std::string FtexStem(std::string_view path);
 std::optional<std::vector<uint8_t>> ReadTextureFile(const QarArchive& qar, const std::string& name);
 bool LoadFtex(const QarArchive& qar, std::string_view path, FtexTexture& out);
 bool DecodeFtexLevel(const FtexTexture& ftex, uint32_t level, std::vector<uint8_t>& rgba);
+bool DecodeFtexSubresource(const FtexTexture& ftex, uint32_t face, uint32_t level, std::vector<uint8_t>& rgba);
 void EncodeBc1Block(const uint8_t* rgba, uint8_t* out);
 void EncodeBc3AlphaBlock(const uint8_t* rgba, uint8_t* out);
 

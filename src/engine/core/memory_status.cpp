@@ -6,6 +6,10 @@
 
 #include "engine/core/log.h"
 
+#ifdef PT_IOS
+#include <os/proc.h>
+#endif
+
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
@@ -45,6 +49,10 @@ void LogMemoryStatus(const char* what, size_t bytes) {
                   what, bytes, static_cast<unsigned long long>(process.PrivateUsage) / mb,
                   static_cast<unsigned long long>(process.WorkingSetSize) / mb,
                   (system.ullTotalPageFile - system.ullAvailPageFile) / mb, system.ullTotalPageFile / mb, system.ullAvailPhys / mb);
+#elif defined(PT_IOS)
+    const size_t available = os_proc_available_memory();
+    std::snprintf(line, sizeof(line), "memory: %s (%zu bytes): app allocation headroom %.0f MB", what, bytes,
+                  static_cast<double>(available) / 1048576.0);
 #else
     std::snprintf(line, sizeof(line), "memory: %s (%zu bytes)", what, bytes);
 #endif
@@ -64,6 +72,11 @@ SystemMemory QuerySystemMemory() {
         out.free_physical_mb = static_cast<double>(system.ullAvailPhys) / 1048576.0;
         out.commit_headroom_mb = static_cast<double>(system.ullAvailPageFile) / 1048576.0;
     }
+#elif defined(PT_IOS)
+    // iOS has no swap/page-file headroom API. This reports the current app's remaining
+    // allocation budget before its process memory limit, not total device free RAM.
+    const size_t available = os_proc_available_memory();
+    out.free_physical_mb = out.commit_headroom_mb = static_cast<double>(available) / 1048576.0;
 #else
     out.free_physical_mb = out.commit_headroom_mb = 1.0e9;
 #endif

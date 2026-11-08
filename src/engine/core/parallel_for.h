@@ -18,6 +18,7 @@ struct PoolWork {
 
 void PoolSubmit(const std::shared_ptr<PoolWork>& work, size_t helpers);
 void PoolRemove(const PoolWork* work);
+bool IsPoolThread();
 
 namespace detail {
 

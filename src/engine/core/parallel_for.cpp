@@ -7,6 +7,8 @@ namespace pt {
 
 namespace {
 
+thread_local bool g_is_pool_thread = false;
+
 class Pool {
 public:
     Pool() {
@@ -40,6 +42,7 @@ public:
 
 private:
     void Run() {
+        g_is_pool_thread = true;
         for (;;) {
             std::shared_ptr<PoolWork> work;
             {
@@ -71,6 +74,10 @@ void PoolSubmit(const std::shared_ptr<PoolWork>& work, size_t helpers) {
 
 void PoolRemove(const PoolWork* work) {
     ThePool().Remove(work);
+}
+
+bool IsPoolThread() {
+    return g_is_pool_thread;
 }
 
 struct ParallelTask::State final : PoolWork {
