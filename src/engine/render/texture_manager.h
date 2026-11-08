@@ -63,7 +63,8 @@ public:
     bool Init(gpu::Device& device);
     void Shutdown();
 
-    uint32_t Create(const std::string& name, gpu::Format format, std::span<const TextureMip> mips, uint32_t layers = 1, bool cube = false);
+    uint32_t Create(const std::string& name, gpu::Format format, std::span<const TextureMip> mips, uint32_t layers = 1, bool cube = false,
+                    const FtexTexture* decode_source = nullptr, uint32_t source_first_level = 0);
     uint32_t Find(const std::string& name) const;
     class ModelScope {
     public:
