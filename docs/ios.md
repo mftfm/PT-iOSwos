@@ -1,6 +1,6 @@
 # Experimental native iOS port
 
-Target: iPhone 16 Pro, ARM64, iOS 18 or newer. This is a source port of
+Intended compatibility target: iPhone 12 (A14) and later, ARM64, iOS 18 or newer. This is a target to validate, not a claim that every listed device has passed physical-device QA. This is a source port of
 LoreanXavier/pt-pc, not a PS4 emulator or binary recompiler. The original project's
 C++ game implementation is compiled ahead of time. Lua 5.1 is interpreted;
 Whisper/ggml CPU code is statically linked. There is no CPU JIT or JIT fallback.
@@ -222,3 +222,39 @@ build/runtime-macos/metalfx-sync-1600.log. This verifies the asynchronous depend
 path on Mac; it is not a controlled performance comparison or iPhone proof.
 Actual phone FPS and the supplied menu/viewport cases remain to be verified.
 Private package:dist/PT-iOS-MetalFX-fullscreen-v0.1.6-unsigned.ipa.
+
+
+## iOS GPU compatibility and memory fallback (2026-11-08)
+
+The Vulkan renderer runs through MoltenVK on top of Metal. BC texture compression
+is optional: when the Metal GPU does not expose all BC formats used by P.T., FTEX
+BC1/2/3/5/7 data is decoded to RGBA8 during upload. BC7 decoding uses the full
+mode decoder from the already-pinned `bc7enc_rdo` dependency; BC5 preserves its
+R/G normal channels. The decode is parallelized by block rows and writes one mip
+at a time into the upload staging buffer to avoid retaining a second full set of
+expanded CPU textures. Devices that support all required BC formats keep the native
+compressed upload path.
+
+The bindless texture layout uses sampled-image arrays plus one shared sampler,
+not thousands of combined-image-sampler descriptors. MoltenVK's Tier 2 argument-buffer
+limits allow hundreds of thousands of sampled images but only about 2,048 sampler
+descriptors per stage. A combined-image-sampler array consumes both limits; splitting
+the image array from its single shared sampler avoids that sampler cap. The image-array
+size is clamped to the physical device's update-after-bind limits. Vulkan features
+that the shaders do not use are no longer enabled as hard requirements; BC support
+and anisotropic filtering are optional. Runtime arrays, non-uniform sampled-image
+indexing, update-after-bind, timeline semaphores, dynamic rendering, synchronization2
+and shader clip distance remain required by the current renderer.
+
+On iOS, `os_proc_available_memory()` supplies the app's remaining process-memory
+allocation budget (not total device free RAM) for the existing memory-pressure guard. Under pressure the game stops stage
+prefetching, releases optional enhanced textures, and reduces the largest mip level
+of subsequent large texture uploads. Full archive read-ahead is disabled by default
+on iOS so launch does not populate more than a gigabyte of file cache before gameplay;
+`PT_PREFETCH=1` opts back in for diagnostics.
+
+These are compatibility and memory safeguards, not proof of flawless gameplay.
+The iPhone 12/A14 and iPhone 13/A15 still require a real-device build and tests for
+startup, texture correctness (especially BC5/BC7), scene transitions, memory headroom,
+thermal behavior and sustained frame rate. The current development environment
+cannot sign or run this IPA on those physical devices.
