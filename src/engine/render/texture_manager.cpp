@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <utility>
 
 #include "engine/assets/ftex.h"
@@ -353,22 +354,43 @@ uint64_t TextureManager::FreeTexture(uint32_t index) {
     return bytes;
 }
 
-uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std::span<const TextureMip> mips, uint32_t layers, bool cube) {
+uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std::span<const TextureMip> mips, uint32_t layers, bool cube,
+                                const FtexTexture* decode_source, uint32_t source_first_level) {
     if (auto it = by_name_.find(name); it != by_name_.end()) {
         if (!model_scope_) Pin(it->second);
         return it->second;
     }
-    if (mips.empty() || (images_.size() >= kMaxTextures && (free_.empty() || cube))) {
+    if (!device_ || mips.empty() || !layers || mips.size() % layers != 0 ||
+        (images_.size() >= kMaxTextures && (free_.empty() || cube))) {
         return kWhite;
     }
     const bool enhanced = name.find("#enhanced-") != std::string::npos;
-    gpu::ImageResource image;
     uint32_t mip_count = static_cast<uint32_t>(mips.size()) / layers;
+    const bool compressed_ftex = decode_source &&
+        (decode_source->pixel_format == 2 || decode_source->pixel_format == 3 || decode_source->pixel_format == 4 ||
+         decode_source->pixel_format == 5 || decode_source->pixel_format == 8);
+    const bool decode_bc = compressed_ftex && !device_->Info().supports_bc_textures;
+    if (decode_bc) {
+        if (layers != decode_source->faces || source_first_level >= decode_source->mip_count ||
+            mip_count > decode_source->mip_count - source_first_level) {
+            LogWarn("texture: {} has inconsistent FTEX mip/face data; BC fallback skipped", name);
+            return kWhite;
+        }
+        const bool srgb = decode_source->Srgb() && decode_source->pixel_format != 5;
+        format = srgb ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm;
+        static bool fallback_logged = false;
+        if (!fallback_logged) {
+            fallback_logged = true;
+            LogWarn("textures: this GPU does not support BC compression; FTEX BC1/2/3/5/7 textures will be decoded to RGBA8 on the CPU");
+        }
+    }
+    gpu::ImageResource image;
     uint32_t dropped = 0;
     if (memory_short_ && !enhanced && layers == 1 && mip_count > 1 && std::max(mips[0].width, mips[0].height) > 512) {
         mips = mips.subspan(1);
         --mip_count;
         ++dropped;
+        if (decode_bc) ++source_first_level;
     }
     const auto create_image = [&] {
         gpu::ImageDesc desc;
@@ -399,13 +421,29 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         mips = mips.subspan(1);
         --mip_count;
         ++dropped;
+        if (decode_bc) ++source_first_level;
     }
     if (dropped) {
         LogWarn("texture: {} loaded at {}x{} without its {} largest mips: out of video memory", name, mips[0].width, mips[0].height, dropped);
     }
+    const auto aligned_size = [](uint64_t size) { return (size + 15ull) & ~15ull; };
     uint64_t total = 0;
-    for (const TextureMip& mip : mips) {
-        total += (mip.data.size() + 15) & ~uint64_t(15);
+    for (uint32_t layer = 0; layer < layers; ++layer) {
+        for (uint32_t level = 0; level < mip_count; ++level) {
+            const TextureMip& mip = mips[layer * mip_count + level];
+            const uint64_t size = decode_bc ? static_cast<uint64_t>(mip.width) * mip.height * 4ull : mip.data.size();
+            if (size > std::numeric_limits<uint64_t>::max() - 15ull || total > std::numeric_limits<uint64_t>::max() - aligned_size(size)) {
+                device_->DestroyImage(image);
+                LogWarn("texture: {} not uploaded: staging size overflow", name);
+                return kWhite;
+            }
+            total += aligned_size(size);
+        }
+    }
+    if (!total) {
+        device_->DestroyImage(image);
+        LogWarn("texture: {} not uploaded: empty texture data", name);
+        return kWhite;
     }
     gpu::BufferResource staging;
     gpu::BufferDesc staging_desc;
@@ -419,17 +457,35 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         return kWhite;
     }
     std::vector<gpu::BufferImageCopy> regions;
+    regions.reserve(static_cast<size_t>(layers) * mip_count);
     uint64_t offset = 0;
     for (uint32_t layer = 0; layer < layers; ++layer) {
         for (uint32_t level = 0; level < mip_count; ++level) {
             const TextureMip& mip = mips[layer * mip_count + level];
-            std::memcpy(static_cast<uint8_t*>(staging.mapped) + offset, mip.data.data(), mip.data.size());
+            std::vector<uint8_t> decoded;
+            std::span<const uint8_t> upload_data = mip.data;
+            if (decode_bc) {
+                if (!DecodeFtexSubresource(*decode_source, layer, source_first_level + level, decoded)) {
+                    device_->DestroyBuffer(staging);
+                    device_->DestroyImage(image);
+                    LogWarn("texture: {} mip {} face {} could not be decoded from BC", name, source_first_level + level, layer);
+                    return kWhite;
+                }
+                upload_data = std::span<const uint8_t>(decoded.data(), decoded.size());
+            }
+            if (upload_data.empty() || offset > staging.size || upload_data.size() > staging.size - offset) {
+                device_->DestroyBuffer(staging);
+                device_->DestroyImage(image);
+                LogWarn("texture: {} has invalid upload data", name);
+                return kWhite;
+            }
+            std::memcpy(static_cast<uint8_t*>(staging.mapped) + offset, upload_data.data(), upload_data.size());
             gpu::BufferImageCopy region;
             region.buffer_offset = offset;
             region.image = {gpu::Aspect::Color, level, layer, 1};
             region.extent = {mip.width, mip.height, 1};
             regions.push_back(region);
-            offset += (mip.data.size() + 15) & ~uint64_t(15);
+            offset += aligned_size(upload_data.size());
         }
     }
     device_->FlushMapped(staging, 0, total);
@@ -570,7 +626,7 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
         }
     }
     const auto upload_started = std::chrono::steady_clock::now();
-    const uint32_t index = Create(key, ftex.Format(), mips, ftex.faces, ftex.faces == 6);
+    const uint32_t index = Create(key, ftex.Format(), mips, ftex.faces, ftex.faces == 6, &ftex, first_level);
     upload_ms_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - upload_started).count();
     if (index != kWhite && !raw && EnhancedTextureEligible(stem, ftex)) {
         fox_sources_[index] = stem;
@@ -757,7 +813,7 @@ void TextureManager::LoadEnhancedTexture(uint32_t index, const std::string& path
         mips.push_back({cached.MipWidth(level), cached.MipHeight(level), cached.mips[level]});
         bytes += cached.mips[level].size();
     }
-    const uint32_t replacement = Create(path + std::format("#enhanced-{:016x}", key), cached.Format(), mips);
+    const uint32_t replacement = Create(path + std::format("#enhanced-{:016x}", key), cached.Format(), mips, 1, false, &cached, 0);
     if (replacement == kWhite) return;
     enhanced_images_[index] = replacement;
     enhanced_bytes_ += bytes;
@@ -899,7 +955,7 @@ void TextureManager::PumpEnhancedTextures(double budget_ms) {
                 mips.push_back({prepared.cached.MipWidth(level), prepared.cached.MipHeight(level), prepared.cached.mips[level]});
                 bytes += prepared.cached.mips[level].size();
             }
-            const uint32_t replacement = Create(prepared.path + std::format("#enhanced-{:016x}", prepared.key), prepared.cached.Format(), mips);
+            const uint32_t replacement = Create(prepared.path + std::format("#enhanced-{:016x}", prepared.key), prepared.cached.Format(), mips, 1, false, &prepared.cached, 0);
             if (replacement != kWhite) {
                 enhanced_images_[prepared.index] = replacement;
                 enhanced_bytes_ += bytes;
