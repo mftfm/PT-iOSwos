@@ -284,6 +284,7 @@ struct DeviceInfo {
     double timestamp_period_ns = 1.0;
     uint32_t max_bindless_textures = 8192;
     float max_sampler_anisotropy = 16.0f;
+    bool supports_bc_textures = false;
 };
 
 }
