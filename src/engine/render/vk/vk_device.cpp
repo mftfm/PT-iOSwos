@@ -39,6 +39,31 @@ Device::Device(pt::vk::Context& ctx) : ctx_(ctx) {
     info_.dynamic_depth_bias = true;
     info_.timestamp_period_ns = ctx.properties.limits.timestampPeriod;
     info_.max_sampler_anisotropy = ctx.properties.limits.maxSamplerAnisotropy;
+
+    VkPhysicalDeviceFeatures supported_features{};
+    vkGetPhysicalDeviceFeatures(ctx_.physical, &supported_features);
+    bool bc_supported = supported_features.textureCompressionBC == VK_TRUE;
+    constexpr VkFormat bc_formats[] = {
+        VK_FORMAT_BC1_RGBA_UNORM_BLOCK, VK_FORMAT_BC1_RGBA_SRGB_BLOCK,
+        VK_FORMAT_BC2_UNORM_BLOCK, VK_FORMAT_BC2_SRGB_BLOCK,
+        VK_FORMAT_BC3_UNORM_BLOCK, VK_FORMAT_BC3_SRGB_BLOCK,
+        VK_FORMAT_BC5_UNORM_BLOCK,
+        VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK,
+    };
+    // Transfer destination support is guaranteed for Vulkan 1.3 formats; only sampling is format-specific here.
+    constexpr VkFormatFeatureFlags required_format_features = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    for (const VkFormat format : bc_formats) {
+        VkFormatProperties format_properties{};
+        vkGetPhysicalDeviceFormatProperties(ctx_.physical, format, &format_properties);
+        if ((format_properties.optimalTilingFeatures & required_format_features) != required_format_features) {
+            bc_supported = false;
+            break;
+        }
+    }
+    info_.supports_bc_textures = bc_supported;
+    LogInfo("vulkan: BC texture compression {}", bc_supported
+        ? "available"
+        : "unavailable; FTEX textures will be decoded on the CPU");
 }
 
 bool Device::CreateImage(const ImageDesc& desc, ImageResource& out) {
