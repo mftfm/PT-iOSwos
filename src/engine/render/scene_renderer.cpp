@@ -90,6 +90,11 @@ const char* DebugViewNames() {
 bool SceneRenderer::EnsureShadowTarget() {
     const vk::AllocTag tag("shadow atlas");
     uint32_t tile = graphics.shadow_quality<=1?512u:graphics.shadow_quality==2?1024u:2048u;
+#if defined(PT_IOS)
+    // The default 8192x8192 D32 atlas costs about 256 MiB. On iPhones this
+    // steals too much of the app's resident-memory budget before stage assets load.
+    tile = std::min(tile, 1024u);
+#endif
     tile = std::min(tile, shadow_tile_cap_);
     uint32_t size=tile*4;
     if(shadow_.Valid() && shadow_.Extent().width==size) return true;
