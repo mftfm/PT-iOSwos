@@ -1100,13 +1100,31 @@ bool SceneRenderer::LoadResources(Vfs& vfs) {
             LogWarn("scene renderer: resource {} missing", path);
             return false;
         }
-        const gpu::Format format = ftex.Format();
-        if (rgba_only && format != gpu::Format::B8G8R8A8Unorm && format != gpu::Format::B8G8R8A8Srgb) {
+        const gpu::Format source_format = ftex.Format();
+        if (rgba_only && source_format != gpu::Format::B8G8R8A8Unorm && source_format != gpu::Format::B8G8R8A8Srgb) {
             LogWarn("scene renderer: resource {} unexpected format", path);
             return false;
         }
-        const bool ok = UploadImage(target, format, {ftex.width, ftex.height, 1}, ftex.mips[0].data(), ftex.mips[0].size());
-        LogInfo("scene renderer: resource {} {}x{} format {} flags {:#x}", path, ftex.width, ftex.height, static_cast<int>(format), ftex.flags);
+        const bool compressed = ftex.pixel_format == 2 || ftex.pixel_format == 3 || ftex.pixel_format == 4 ||
+                                ftex.pixel_format == 5 || ftex.pixel_format == 8;
+        const bool decode_bc = compressed && !gpu_->Info().supports_bc_textures;
+        const gpu::Format upload_format = decode_bc
+            ? (ftex.Srgb() && ftex.pixel_format != 5 ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm)
+            : source_format;
+        std::vector<uint8_t> decoded;
+        const uint8_t* upload_data = ftex.mips[0].data();
+        size_t upload_size = ftex.mips[0].size();
+        if (decode_bc) {
+            if (!DecodeFtexSubresource(ftex, 0, 0, decoded)) {
+                LogWarn("scene renderer: resource {} BC mip could not be decoded for this GPU", path);
+                return false;
+            }
+            upload_data = decoded.data();
+            upload_size = decoded.size();
+        }
+        const bool ok = UploadImage(target, upload_format, {ftex.width, ftex.height, 1}, upload_data, upload_size);
+        LogInfo("scene renderer: resource {} {}x{} format {}{} flags {:#x}", path, ftex.width, ftex.height,
+                static_cast<int>(upload_format), decode_bc ? " (CPU-decoded from BC)" : "", ftex.flags);
         return ok;
     };
     load("/Assets/fox/effect/gr_pic/materials_alp_rgba32_nomip_nrt", material_tex_, true);
@@ -1114,13 +1132,36 @@ bool SceneRenderer::LoadResources(Vfs& vfs) {
         FtexTexture ftex;
         const char* path = "/Assets/sh/effect/vfx_pic/view/fx_viwfilnis01_iy";
         if (LoadFtex(vfs.Textures(), path, ftex) && !ftex.mips.empty() && !ftex.mips[0].empty()) {
+            const gpu::Format source_format = ftex.Format();
+            const bool compressed = ftex.pixel_format == 2 || ftex.pixel_format == 3 || ftex.pixel_format == 4 ||
+                                    ftex.pixel_format == 5 || ftex.pixel_format == 8;
+            const bool decode_bc = compressed && !gpu_->Info().supports_bc_textures;
+            const gpu::Format upload_format = decode_bc
+                ? (ftex.Srgb() && ftex.pixel_format != 5 ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm)
+                : source_format;
             std::vector<std::vector<uint8_t>> mips;
+            bool decoded_ok = true;
             for (uint32_t level = 0; level < ftex.mip_count && !ftex.mips[level].empty(); ++level) {
-                mips.push_back(ftex.mips[level]);
+                if (decode_bc) {
+                    std::vector<uint8_t> decoded;
+                    if (!DecodeFtexSubresource(ftex, 0, level, decoded)) {
+                        LogWarn("scene renderer: resource {} BC mip {} could not be decoded for this GPU", path, level);
+                        decoded_ok = false;
+                        break;
+                    }
+                    mips.push_back(std::move(decoded));
+                } else {
+                    mips.push_back(ftex.mips[level]);
+                }
             }
-            UploadImageMips(noise_, ftex.Format(), {ftex.width, ftex.height, 1}, mips);
-            LogInfo("scene renderer: resource {} {}x{} format {} with {} levels", path, ftex.width, ftex.height, static_cast<int>(ftex.Format()),
-                    mips.size());
+            if (decoded_ok && !mips.empty()) {
+                if (UploadImageMips(noise_, upload_format, {ftex.width, ftex.height, 1}, mips)) {
+                    LogInfo("scene renderer: resource {} {}x{} format {}{} with {} levels", path, ftex.width, ftex.height,
+                            static_cast<int>(upload_format), decode_bc ? " (CPU-decoded from BC)" : "", mips.size());
+                } else {
+                    LogWarn("scene renderer: resource {} could not be uploaded", path);
+                }
+            }
         } else {
             LogWarn("scene renderer: resource {} missing", path);
         }
