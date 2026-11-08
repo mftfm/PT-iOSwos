@@ -9,18 +9,18 @@ set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(sdl3 GIT_REPOSITORY https://github.com/libsdl-org/SDL.git GIT_TAG release-3.4.16 GIT_SHALLOW TRUE)
+FetchContent_Declare(sdl3 GIT_REPOSITORY https://github.com/libsdl-org/SDL.git GIT_TAG release-3.4.20 GIT_SHALLOW TRUE)
 
 set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(zlib GIT_REPOSITORY https://github.com/madler/zlib.git GIT_TAG v1.3.2 GIT_SHALLOW TRUE)
+FetchContent_Declare(zlib GIT_REPOSITORY https://github.com/madler/zlib.git GIT_TAG v1.4 GIT_SHALLOW TRUE)
 
 FetchContent_Declare(volk GIT_REPOSITORY https://github.com/zeux/volk.git GIT_TAG 1.4.350 GIT_SHALLOW TRUE)
-FetchContent_Declare(vma GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git GIT_TAG v3.4.0 GIT_SHALLOW TRUE)
+FetchContent_Declare(vma GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git GIT_TAG v3.5.0 GIT_SHALLOW TRUE)
 FetchContent_Declare(glm GIT_REPOSITORY https://github.com/g-truc/glm.git GIT_TAG 1.0.3 GIT_SHALLOW TRUE)
-FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.92.9b-docking GIT_SHALLOW TRUE)
+FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.93.0-docking GIT_SHALLOW TRUE)
 FetchContent_Declare(stb GIT_REPOSITORY https://github.com/nothings/stb.git GIT_TAG master GIT_SHALLOW TRUE)
 FetchContent_Declare(lua51 URL https://www.lua.org/ftp/lua-5.1.5.tar.gz
   URL_HASH SHA256=2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333)
@@ -31,8 +31,7 @@ FetchContent_MakeAvailable(sdl3 zlib)
 # whisper.cpp (MIT) for the true end's word (formats/voice.md), CPU only. pt.exe stays x86-64 SSE2: whisper and ggml
 # are DLLs in voice/ that VoiceRecognizer loads at run time, and the CPU code is ggml's per-CPU variants
 # (ggml-cpu-x64, -sse42, -sandybridge, -haswell, -skylakex, ... DLLs), of which ggml loads the best the CPU runs.
-FetchContent_Declare(whisper URL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.4.tar.gz
-  URL_HASH SHA256=57e280cee375ab02425b806ad5146b99f6eb9357e3c2b31357c8a6af2e2e44ae)
+FetchContent_Declare(whisper GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git GIT_TAG v1.9.5 GIT_SHALLOW TRUE)
 FetchContent_Populate(whisper)
 set(PT_VOICE_DIR ${CMAKE_BINARY_DIR}/voice)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
@@ -207,7 +206,7 @@ endif()
 target_link_libraries(pt_thirdparty PUBLIC Vulkan::Headers SDL3::SDL3-static zlibstatic pt_bc7enc)
 if(NOT WIN32)
   # Unicode text shaping for the added languages (src/engine/ui/unicode_font_harfbuzz.cpp); Windows uses Uniscribe instead
-  FetchContent_Declare(harfbuzz GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git GIT_TAG 14.6.0 GIT_SHALLOW TRUE)
+  FetchContent_Declare(harfbuzz GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git GIT_TAG 15.1.0 GIT_SHALLOW TRUE)
   FetchContent_Populate(harfbuzz)
   add_library(pt_harfbuzz STATIC ${harfbuzz_SOURCE_DIR}/src/harfbuzz.cc)
   target_include_directories(pt_harfbuzz PUBLIC ${harfbuzz_SOURCE_DIR}/src)
