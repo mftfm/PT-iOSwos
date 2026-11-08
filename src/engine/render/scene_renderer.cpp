@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <map>
+#include <limits>
 #include <utility>
 
 #include "engine/assets/ftex.h"
@@ -1013,8 +1014,18 @@ bool SceneRenderer::UploadImageMips(gpu::ImageResource& image, gpu::Format forma
         return false;
     }
     size_t total = 0;
-    for (const std::vector<uint8_t>& mip : mips) {
-        total += mip.size();
+    for (uint32_t level = 0; level < levels; ++level) {
+        if (mips[level].size() > std::numeric_limits<size_t>::max() - total) {
+            gpu_->DestroyImage(image);
+            LogWarn("scene renderer: mip staging size overflow");
+            return false;
+        }
+        total += mips[level].size();
+    }
+    if (!total) {
+        gpu_->DestroyImage(image);
+        LogWarn("scene renderer: refusing an empty mip staging buffer");
+        return false;
     }
     gpu::BufferResource staging;
     if (!MakeBuffer(staging, total, gpu::BufferUsage::TransferSrc, true)) {
