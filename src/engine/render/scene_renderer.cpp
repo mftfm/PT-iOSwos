@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <map>
+#include <utility>
 
 #include "engine/assets/ftex.h"
 #include "engine/core/log.h"
@@ -985,12 +986,30 @@ bool SceneRenderer::UploadImage(gpu::ImageResource& image, gpu::Format format, g
 
 bool SceneRenderer::UploadImageMips(gpu::ImageResource& image, gpu::Format format, gpu::Extent3D extent, const std::vector<std::vector<uint8_t>>& mips) {
     const vk::AllocTag tag("scene images");
-    const uint32_t levels = static_cast<uint32_t>(mips.size());
+    if (!extent.width || !extent.height || !extent.depth || mips.empty()) {
+        LogWarn("scene renderer: refusing an empty mipmapped image");
+        return false;
+    }
+    uint32_t max_levels = 1;
+    for (uint32_t dimension = std::max({extent.width, extent.height, extent.depth}); dimension > 1; dimension >>= 1) {
+        ++max_levels;
+    }
+    const uint32_t levels = std::min(static_cast<uint32_t>(mips.size()), max_levels);
+    if (levels < mips.size()) {
+        LogWarn("scene renderer: mip chain has {} levels but {}x{}x{} images support at most {}; extra levels ignored",
+                mips.size(), extent.width, extent.height, extent.depth, max_levels);
+    }
+    for (uint32_t level = 0; level < levels; ++level) {
+        if (mips[level].empty()) {
+            LogWarn("scene renderer: refusing an empty mip level {}", level);
+            return false;
+        }
+    }
     if (image.image) {
         gpu_->WaitIdle();
         gpu_->DestroyImage(image);
     }
-    if (levels == 0 || !gpu_->CreateImage({format, extent, gpu::ImageUsage::Sampled | gpu::ImageUsage::TransferDst, levels}, image)) {
+    if (!gpu_->CreateImage({format, extent, gpu::ImageUsage::Sampled | gpu::ImageUsage::TransferDst, levels}, image)) {
         return false;
     }
     size_t total = 0;
@@ -1140,6 +1159,9 @@ bool SceneRenderer::LoadResources(Vfs& vfs) {
                 ? (ftex.Srgb() && ftex.pixel_format != 5 ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm)
                 : source_format;
             std::vector<std::vector<uint8_t>> mips;
+            LogInfo("scene renderer: preparing {} {}x{} FTEX format {} (pixel format {}, {} mips, BC fallback {})",
+                    path, ftex.width, ftex.height, static_cast<int>(source_format), ftex.pixel_format, ftex.mip_count,
+                    decode_bc ? "yes" : "no");
             bool decoded_ok = true;
             for (uint32_t level = 0; level < ftex.mip_count && !ftex.mips[level].empty(); ++level) {
                 if (decode_bc) {
