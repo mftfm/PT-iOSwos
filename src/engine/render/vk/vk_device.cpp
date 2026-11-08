@@ -50,12 +50,14 @@ Device::Device(pt::vk::Context& ctx) : ctx_(ctx) {
         VK_FORMAT_BC5_UNORM_BLOCK,
         VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK,
     };
-    // Transfer destination support is guaranteed for Vulkan 1.3 formats; only sampling is format-specific here.
-    constexpr VkFormatFeatureFlags required_format_features = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    constexpr VkImageUsageFlags bc_image_usage =
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     for (const VkFormat format : bc_formats) {
-        VkFormatProperties format_properties{};
-        vkGetPhysicalDeviceFormatProperties(ctx_.physical, format, &format_properties);
-        if ((format_properties.optimalTilingFeatures & required_format_features) != required_format_features) {
+        VkImageFormatProperties image_properties{};
+        const VkResult result = vkGetPhysicalDeviceImageFormatProperties(
+            ctx_.physical, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+            bc_image_usage, 0, &image_properties);
+        if (result != VK_SUCCESS) {
             bc_supported = false;
             break;
         }
