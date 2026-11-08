@@ -79,6 +79,8 @@ public:
     void AddModelRef(uint32_t index);
     uint64_t ReleaseModelRef(uint32_t index);
     uint32_t FreeSlots() const { return static_cast<uint32_t>(free_.size()); }
+    // Keep using reduced texture mip levels after the first low-memory warning in this run.
+    void SetMemoryPressure(bool pressured) { memory_short_ = memory_short_ || pressured; }
     uint32_t LoadFox(const QarArchive& qar, const std::string& path, bool* ok = nullptr, bool raw = false);
     uint32_t LoadImageFile(const std::filesystem::path& path, const std::string& key);
     void DecodeAhead(const QarArchive& qar, const std::vector<std::string>& paths);
