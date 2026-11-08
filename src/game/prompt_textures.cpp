@@ -384,10 +384,20 @@ void PromptTextures::Finish(Target& target, Painted painted) {
                 ++first;
             }
             std::vector<TextureMip> mips;
-            for (uint32_t level = first; level < ftex.mip_count; ++level) {
-                mips.push_back({std::max(ftex.MipWidth(level), 1u), std::max(ftex.MipHeight(level), 1u), ftex.mips[level]});
+            for (uint32_t face = 0; face < ftex.faces; ++face) {
+                for (uint32_t level = first; level < ftex.mip_count; ++level) {
+                    const auto& data = ftex.mips[static_cast<size_t>(face) * ftex.mip_count + level];
+                    mips.push_back({std::max(ftex.MipWidth(level), 1u), std::max(ftex.MipHeight(level), 1u), data});
+                }
             }
-            index = textures_->Create(FtexStem(texture.path) + "#prompt:" + painted.variant, ftex.Format(), mips);
+            const gpu::Format source_format = ftex.Format();
+            const bool compressed = ftex.pixel_format == 2 || ftex.pixel_format == 3 || ftex.pixel_format == 4 ||
+                                    ftex.pixel_format == 5 || ftex.pixel_format == 8;
+            const bool decode_bc = compressed && !textures_->SupportsBcTextures();
+            const bool source_srgb = ftex.Srgb() && ftex.pixel_format != 5;
+            const gpu::Format upload_format = decode_bc ? (source_srgb ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm) : source_format;
+            index = textures_->Create(FtexStem(texture.path) + "#prompt:" + painted.variant, upload_format, mips,
+                                      ftex.faces, ftex.faces == 6, decode_bc ? &ftex : nullptr, first);
         }
         texture.variants[painted.variant] = index;
     }
