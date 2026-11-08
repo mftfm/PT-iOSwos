@@ -6749,8 +6749,9 @@ int RunGame(App& app, pt::Vfs& vfs) {
                     guard_low = low;
                     game.Stages().SetPrefetchAllowed(!low);
                     if (!low) {
-                        pt::LogInfo("memory: room again, backing off ends");
+                        pt::LogInfo("memory: room again, stage prefetch may resume; texture mip policy stays conservative for this run");
                     } else {
+                        app.textures.SetMemoryPressure(true);
                         app.renderer.Context().LogMemoryReport("memory low");
                     }
                 }
@@ -7047,7 +7048,11 @@ int main(int argc, char** argv) {
                                  "; please attach that file when you report this.";
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "P.T. could not start", text.c_str(), nullptr);
     };
-#ifdef _WIN32
+#ifdef PT_IOS
+    const std::string driver_advice = "On iOS, Vulkan is provided by the app's bundled MoltenVK runtime over Apple's Metal driver; "
+                                      "there is no separate NVIDIA, AMD or Mesa driver to update. Make sure the device is running iOS 18 or "
+                                      "newer, then attach pt.log when reporting this error so the unsupported GPU feature or format can be identified.";
+#elif defined(_WIN32)
     const std::string driver_advice = "Install the latest graphics driver from NVIDIA, AMD or Intel (a clean reinstall fixed this for other "
                                       "players), and close overlays such as RivaTuner or MSI Afterburner. P.T. needs a GPU with Vulkan 1.3.";
 #else
@@ -7267,9 +7272,17 @@ int main(int argc, char** argv) {
     }
 
     pt::FilePrefetch file_prefetch;
+#ifdef PT_IOS
+    // Avoid reading the full 1.2+ GB archives into the iOS file cache at launch.
+    // Keep reads demand-driven; allow opt-in prefetch for diagnostics with PT_PREFETCH=1.
+    if (const char* prefetch = std::getenv("PT_PREFETCH"); prefetch && std::string_view(prefetch) == "1") {
+        file_prefetch.Start({game_dir / "chunk1.psarc", game_dir / "texture.qar"});
+    }
+#else
     if (const char* prefetch = std::getenv("PT_PREFETCH"); !prefetch || std::string_view(prefetch) != "0") {
         file_prefetch.Start({game_dir / "chunk1.psarc", game_dir / "texture.qar"});
     }
+#endif
 
     if (!SDL_Init(options.headless ? 0 : SDL_INIT_VIDEO)) {
         pt::LogError("SDL_Init: {}", SDL_GetError());
