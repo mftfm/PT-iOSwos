@@ -242,6 +242,13 @@ StageManager::ParsedStage StageManager::Parse(Vfs& vfs, const std::string& fpk_p
 }
 
 void StageManager::StartPrefetch(const std::string& fpk_path) {
+#ifdef PT_IOS
+    // Keep stage parsing/loading on demand on iOS; overlapping the next stage's
+    // CPU assets with the active stage is a common source of jetsam.
+    (void)fpk_path;
+    DropPrefetch();
+    return;
+#endif
     DropPrefetch();
     prefetch_path_ = fpk_path;
     auto known = std::make_shared<KnownAssets>(KnownAssets{models_.Paths(), models_.Textures().Names(), {}});
