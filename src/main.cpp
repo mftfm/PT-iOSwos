@@ -7409,10 +7409,20 @@ int main(int argc, char** argv) {
         PTAttachTouchControls(app.window);
         int native_width=0,native_height=0;
         if (SDL_GetWindowSizeInPixels(app.window,&native_width,&native_height) && native_width>0 && native_height>0) {
-            const auto size=pt::ios::FitRenderWidth(native_width,native_height,app.settings.display.width);
-            app.settings.display.width=size.width; app.settings.display.height=size.height;
+            const double headroom_mb = pt::QuerySystemMemory().free_physical_mb;
+            // Keep native-resolution UI/presentation, but scale the scene target
+            // to the app's real process headroom instead of device-name heuristics.
+            int memory_width_cap = 1600;
+            if (headroom_mb < 512.0) memory_width_cap = 960;
+            else if (headroom_mb < 768.0) memory_width_cap = 1088;
+            else if (headroom_mb < 1024.0) memory_width_cap = 1216;
+            else if (headroom_mb < 1536.0) memory_width_cap = 1344;
+            else if (headroom_mb < 2048.0) memory_width_cap = 1472;
+            const int requested_width = std::min(app.settings.display.width, memory_width_cap);
+            const auto size=pt::ios::FitRenderWidth(native_width,native_height,requested_width);
             app.options.width=size.width; app.options.height=size.height;
-            pt::LogInfo("ios: native {}x{}, render {}x{} (display aspect)",native_width,native_height,size.width,size.height);
+            pt::LogInfo("ios: native {}x{}, scene {}x{}, app headroom {:.0f} MB (adaptive render scale; UI stays native)",
+                        native_width,native_height,size.width,size.height,headroom_mb);
         }
 #endif
         if (SDL_GetWindowFlags(app.window) & SDL_WINDOW_MINIMIZED) SDL_RestoreWindow(app.window);
