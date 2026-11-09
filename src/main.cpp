@@ -6818,7 +6818,7 @@ int RunGame(App& app, pt::Vfs& vfs) {
             cap = PTIOSFrameLimit(cap);
             static int ios_logged_cap = -1;
             if (cap != ios_logged_cap) {
-                pt::LogInfo("ios: effective frame limit {} (120 ceiling; thermal/power protection may lower it)", cap);
+                pt::LogInfo("ios: effective frame limit {} (60 Hz mobile target; thermal/power protection may lower it to 30 Hz)", cap);
                 ios_logged_cap = cap;
             }
 #endif
