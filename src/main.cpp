@@ -7388,7 +7388,18 @@ int main(int argc, char** argv) {
                                                                     : UserDataDir() / "pt.ini";
     const bool settings_loaded = !app.settings_path.empty() && pt::LoadAppSettings(app.settings_path, app.settings);
 #ifdef PT_IOS
+    // This binary is a Vulkan/MoltenVK mobile build. Do not let a copied desktop
+    // pt.ini select D3D12, DLSS/FSR frame generation, HDR or VR during bootstrap.
     app.settings.display.fullscreen = 1;
+    app.settings.display.rendering_api = "vulkan";
+    app.settings.display.rendering_api_asked = true;
+    app.settings.display.hdr = false;
+    app.settings.display.vsync = true;
+    app.settings.vr.enabled = false;
+    app.settings.upscaling.upscaler = "off";
+    app.settings.upscaling.frame_generation = "off";
+    app.settings.upscaling.neural_rendering = "off";
+    app.settings.upscaling.ray_reconstruction = false;
 #endif
 #ifdef PT_D3D12_GAME
     pt::SetD3D12RunsGame(true);
