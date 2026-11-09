@@ -6783,15 +6783,27 @@ int RunGame(App& app, pt::Vfs& vfs) {
 #ifdef PT_IOS
                 const bool memory_warning = PTIOSConsumeMemoryWarning();
                 const double sampled_headroom = pt::QuerySystemMemory().free_physical_mb;
-                const auto render_width_cap = [](double headroom_mb) -> uint32_t {
-                    if (headroom_mb < 512.0) return 640;
-                    if (headroom_mb < 768.0) return 768;
-                    if (headroom_mb < 1024.0) return 896;
-                    if (headroom_mb < 1536.0) return 1024;
-                    if (headroom_mb < 2048.0) return 1280;
-                    return 1600;
+                const auto render_width_cap = [](double headroom_mb, double gpu_used_mb, double gpu_budget_mb) -> uint32_t {
+                    uint32_t cap = 1600;
+                    if (headroom_mb < 512.0) cap = 640;
+                    else if (headroom_mb < 768.0) cap = 768;
+                    else if (headroom_mb < 1024.0) cap = 896;
+                    else if (headroom_mb < 1536.0) cap = 1024;
+                    else if (headroom_mb < 2048.0) cap = 1280;
+                    // Apple GPUs share physical memory with the CPU, but still
+                    // expose a driver allocation budget. Use it as an additional
+                    // signal instead of assuming that process headroom alone
+                    // describes render-target pressure.
+                    if (gpu_budget_mb > 0.0) {
+                        const double fraction = gpu_used_mb / gpu_budget_mb;
+                        if (fraction >= 0.97) cap = std::min(cap, 768u);
+                        else if (fraction >= 0.93) cap = std::min(cap, 896u);
+                        else if (fraction >= 0.88) cap = std::min(cap, 1280u);
+                    }
+                    return cap;
                 };
-                const bool needs_render_scale = app.window && low && app.options.width > render_width_cap(sampled_headroom);
+                const bool needs_render_scale = app.window && low &&
+                    app.options.width > render_width_cap(sampled_headroom, guard_vram_used, guard_vram_budget);
 #else
                 const bool memory_warning = false;
                 const bool needs_render_scale = false;
@@ -6812,7 +6824,7 @@ int RunGame(App& app, pt::Vfs& vfs) {
                         // Render targets are a large persistent GPU allocation.
                         // Progressively scale down only the 3D scene until it fits
                         // the process headroom tier. UI/presentation stay native.
-                        uint32_t target_width = render_width_cap(headroom_after_cleanup);
+                        uint32_t target_width = render_width_cap(headroom_after_cleanup, guard_vram_used, guard_vram_budget);
                         if (memory_warning && app.options.width > 640) {
                             target_width = std::min(target_width, std::max(640u, ((app.options.width * 4u / 5u) & ~1u)));
                         }
