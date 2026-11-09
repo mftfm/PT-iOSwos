@@ -241,6 +241,7 @@ StageManager::ParsedStage StageManager::Parse(Vfs& vfs, const std::string& fpk_p
 }
 
 void StageManager::StartPrefetch(const std::string& fpk_path) {
+    if (!prefetch_allowed_) return;
     DropPrefetch();
     prefetch_path_ = fpk_path;
     auto known = std::make_shared<KnownAssets>(KnownAssets{models_.Paths(), models_.Textures().Names(), {}});
@@ -882,7 +883,11 @@ struct StageManager::PendingCollision {
     }
 };
 
-StageManager::StageManager(Vfs& vfs, ModelCache& models) : vfs_(vfs), models_(models) {}
+StageManager::StageManager(Vfs& vfs, ModelCache& models) : vfs_(vfs), models_(models) {
+#ifdef PT_IOS
+    LogInfo("stage: predictive stage prefetch disabled on iOS to reduce CPU/GPU memory overlap");
+#endif
+}
 
 StageManager::~StageManager() {
     DropCollisionBuild();
