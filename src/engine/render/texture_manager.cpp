@@ -387,11 +387,35 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
     }
     gpu::ImageResource image;
     uint32_t dropped = 0;
+    // TextureMip arrays are face-major: face0 mip0..N, face1 mip0..N.
+    // Rebuild the compact span when dropping a level from a cube texture;
+    // subspan(1) is only valid for a single-layer 2D texture.
+    std::vector<TextureMip> reduced_mips;
+    const auto drop_largest_mip = [&] {
+        if (mip_count < 2) return false;
+        if (layers == 1) {
+            mips = mips.subspan(1);
+        } else {
+            std::vector<TextureMip> next_mips;
+            next_mips.reserve(static_cast<size_t>(layers) * (mip_count - 1));
+            for (uint32_t layer = 0; layer < layers; ++layer) {
+                const auto first = mips.begin() + static_cast<std::ptrdiff_t>(layer) * mip_count + 1;
+                const auto last = first + (mip_count - 1);
+                next_mips.insert(next_mips.end(), first, last);
+            }
+            reduced_mips = std::move(next_mips);
+            mips = reduced_mips;
+        }
+        --mip_count;
+        ++dropped;
+        if (decode_bc) ++source_first_level;
+        return true;
+    };
 #ifdef PT_IOS
     // One runtime policy for every iOS device: use current process headroom,
     // not separate A14/A15 and low-RAM device switches. Apply before image and
-    // staging allocation, and advance the FTEX source mip in lockstep.
-    if (!enhanced && layers == 1 && mip_count > 1) {
+    // staging allocation for both 2D and cube textures.
+    if (!enhanced && mip_count > 1) {
         const double headroom_mb = QuerySystemMemory().free_physical_mb;
         uint32_t max_dimension = 2048;
         if (headroom_mb < 512.0) max_dimension = 64;
@@ -402,10 +426,7 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         if (headroom_mb < 1536.0) memory_short_ = true;
         if (memory_short_) max_dimension = std::min(max_dimension, 512u);
         while (mip_count > 1 && std::max(mips[0].width, mips[0].height) > max_dimension) {
-            mips = mips.subspan(1);
-            --mip_count;
-            ++dropped;
-            if (decode_bc) ++source_first_level;
+            if (!drop_largest_mip()) break;
         }
         static std::atomic<uint32_t> last_logged_cap{0};
         if (last_logged_cap.exchange(max_dimension) != max_dimension) {
@@ -414,11 +435,9 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         }
     }
 #else
-    if (memory_short_ && !enhanced && layers == 1 && mip_count > 1 && std::max(mips[0].width, mips[0].height) > 512) {
-        mips = mips.subspan(1);
-        --mip_count;
-        ++dropped;
-        if (decode_bc) ++source_first_level;
+    if (memory_short_ && !enhanced && mip_count > 1 &&
+        std::max(mips[0].width, mips[0].height) > 512) {
+        drop_largest_mip();
     }
 #endif
     const auto create_image = [&] {
@@ -443,14 +462,10 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
             memory_short_ = true;
             LogWarn("textures: out of video memory: from now on textures over 512 px load without their largest mip");
         }
-        if (layers != 1 || mip_count < 2 || std::max(mips[1].width, mips[1].height) < 64) {
+        if (mip_count < 2 || std::max(mips[1].width, mips[1].height) < 64 || !drop_largest_mip()) {
             LogWarn("texture: {} not loaded: out of video memory", name);
             return kWhite;
         }
-        mips = mips.subspan(1);
-        --mip_count;
-        ++dropped;
-        if (decode_bc) ++source_first_level;
     }
     if (dropped) {
         LogWarn("texture: {} loaded at {}x{} without its {} largest mips: out of video memory", name, mips[0].width, mips[0].height, dropped);
