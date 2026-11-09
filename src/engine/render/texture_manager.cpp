@@ -17,6 +17,7 @@
 #include "engine/assets/ftex.h"
 #include "engine/assets/enhanced_textures.h"
 #include "engine/core/log.h"
+#include "engine/core/memory_status.h"
 #include "engine/fs/mods.h"
 #include "engine/render/vk/vk_device.h"
 
@@ -386,12 +387,40 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
     }
     gpu::ImageResource image;
     uint32_t dropped = 0;
+#ifdef PT_IOS
+    // One runtime policy for every iOS device: use current process headroom,
+    // not separate A14/A15 and low-RAM device switches. Apply before image and
+    // staging allocation, and advance the FTEX source mip in lockstep.
+    if (!enhanced && layers == 1 && mip_count > 1) {
+        const double headroom_mb = QuerySystemMemory().free_physical_mb;
+        uint32_t max_dimension = 2048;
+        if (headroom_mb < 512.0) max_dimension = 64;
+        else if (headroom_mb < 768.0) max_dimension = 128;
+        else if (headroom_mb < 1024.0) max_dimension = 256;
+        else if (headroom_mb < 1536.0) max_dimension = 512;
+        else if (headroom_mb < 2048.0) max_dimension = 1024;
+        if (headroom_mb < 1536.0) memory_short_ = true;
+        if (memory_short_) max_dimension = std::min(max_dimension, 512u);
+        while (mip_count > 1 && std::max(mips[0].width, mips[0].height) > max_dimension) {
+            mips = mips.subspan(1);
+            --mip_count;
+            ++dropped;
+            if (decode_bc) ++source_first_level;
+        }
+        static std::atomic<uint32_t> last_logged_cap{0};
+        if (last_logged_cap.exchange(max_dimension) != max_dimension) {
+            LogInfo("textures: unified iOS memory policy: {:.0f} MB app headroom, {} px base cap",
+                    headroom_mb, max_dimension);
+        }
+    }
+#else
     if (memory_short_ && !enhanced && layers == 1 && mip_count > 1 && std::max(mips[0].width, mips[0].height) > 512) {
         mips = mips.subspan(1);
         --mip_count;
         ++dropped;
         if (decode_bc) ++source_first_level;
     }
+#endif
     const auto create_image = [&] {
         gpu::ImageDesc desc;
         desc.format = format;
