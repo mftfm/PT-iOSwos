@@ -3,6 +3,12 @@ name: Build PT-iOS IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "ios/**"
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
