@@ -24,7 +24,9 @@ int main(int argc,char**argv) {
     int restored_w=0,restored_h=0;SDL_GetWindowSizeInPixels(window,&restored_w,&restored_h);
     Check(native_w==restored_w && native_h==restored_h,"restore fullscreen drawable after desktop resize");
     PTAttachTouchControls(window);
-    Check(Overlay(native.rootViewController.view)!=nil,"initial overlay");
+    UIView* initialOverlay=Overlay(native.rootViewController.view);
+    Check(initialOverlay!=nil,"initial overlay");
+    Check(!initialOverlay.isOpaque,"touch overlay must preserve transparency over Metal");
     UIView* before=native.rootViewController.view;
     SDL_MetalView metal=SDL_Metal_CreateView(window);
     Check(metal!=nullptr,"Metal surface");
@@ -40,12 +42,14 @@ int main(int argc,char**argv) {
     UIView* look=nil;
     for(UIView* child in overlay.subviews) if([child.accessibilityIdentifier isEqualToString:@"pt.touch.look"]) look=child;
     Check(look!=nil,"look stick");
+    Check(!look.isOpaque,"touch stick must preserve transparency");
     [look setValue:[NSValue valueWithCGPoint:CGPointMake(.8,.4)] forKey:@"position"];
     [look performSelector:NSSelectorFromString(@"reset")];
     Check(CGPointEqualToPoint([[look valueForKey:@"position"] CGPointValue],CGPointZero),"stick reset clears visual state");
     UIButton* action=nil;
     for(UIView* child in overlay.subviews) if([child isKindOfClass:UIButton.class] && [child.accessibilityLabel isEqualToString:@"Action"])action=(UIButton*)child;
     Check(action!=nil,"action button");
+    Check(!action.isOpaque,"translucent action button must preserve transparency");
     [action sendActionsForControlEvents:UIControlEventTouchDown];SDL_UpdateGamepads();
     Check(SDL_GetGamepadButton(pad,SDL_GAMEPAD_BUTTON_SOUTH),"touch down reaches SDL gamepad");
     [action sendActionsForControlEvents:UIControlEventTouchUpInside];SDL_UpdateGamepads();
