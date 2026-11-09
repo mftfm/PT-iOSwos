@@ -6797,6 +6797,25 @@ int RunGame(App& app, pt::Vfs& vfs) {
                         // models for reuse. An OS memory warning is also a cleanup
                         // trigger, even before the sampled headroom threshold trips.
                         game.ReleaseUnusedAssets(memory_warning ? "iOS memory warning" : "iOS memory pressure");
+                        const double headroom_after_cleanup = pt::QuerySystemMemory().free_physical_mb;
+                        // Render targets are a large persistent GPU allocation.
+                        // If the process is still under pressure after releasing
+                        // optional/cached assets, reduce only the 3D scene extent.
+                        // The presentation surface and UI remain native resolution.
+                        if (app.window && (memory_warning || headroom_after_cleanup < 1536.0) && app.options.width > 640) {
+                            const uint32_t reduced_width = std::max(640u, ((app.options.width * 4u / 5u) & ~1u));
+                            int native_width = 0;
+                            int native_height = 0;
+                            if (SDL_GetWindowSizeInPixels(app.window, &native_width, &native_height) &&
+                                native_width > 0 && native_height > 0 && reduced_width < app.options.width) {
+                                const auto size = pt::ios::FitRenderWidth(native_width, native_height, static_cast<int>(reduced_width));
+                                app.renderer.SetRenderExtent({static_cast<uint32_t>(size.width), static_cast<uint32_t>(size.height)});
+                                app.options.width = static_cast<uint32_t>(size.width);
+                                app.options.height = static_cast<uint32_t>(size.height);
+                                pt::LogWarn("ios: memory pressure reduced 3D render size to {}x{} (native UI remains {}x{}, {:.0f} MB app headroom)",
+                                            size.width, size.height, native_width, native_height, headroom_after_cleanup);
+                            }
+                        }
 #endif
                         app.renderer.Context().LogMemoryReport(memory_warning ? "iOS memory warning" : "memory low");
                     }
