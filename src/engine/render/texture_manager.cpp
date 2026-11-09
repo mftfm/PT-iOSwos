@@ -426,7 +426,6 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
             LogWarn("texture: {} not loaded: out of video memory", name);
             return kWhite;
         }
-        drop_largest_mip();
     }
     if (dropped) {
         LogWarn("texture: {} loaded at {}x{} without its {} largest mips: out of video memory", name, mips[0].width, mips[0].height, dropped);
