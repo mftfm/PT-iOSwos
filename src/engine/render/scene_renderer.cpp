@@ -1325,8 +1325,10 @@ std::unique_ptr<GpuMesh> SceneRenderer::Upload(const MeshData& data) {
     return mesh;
 }
 
-void SceneRenderer::Destroy(GpuMesh& mesh) {
-    gpu_->WaitIdle();
+void SceneRenderer::Destroy(GpuMesh& mesh, bool wait_for_gpu) {
+    if (wait_for_gpu) {
+        gpu_->WaitIdle();
+    }
     if (rt_) {
         rt_->Forget(mesh);
     }
