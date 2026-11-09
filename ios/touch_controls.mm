@@ -17,7 +17,7 @@ static void ResetPad() {
 @end
 @implementation PTStick
 - (instancetype)initWithFrame:(CGRect)frame {
-    if ((self=[super initWithFrame:frame])) { self.multipleTouchEnabled=NO; self.backgroundColor=UIColor.clearColor; }
+    if ((self=[super initWithFrame:frame])) { self.multipleTouchEnabled=NO; self.backgroundColor=UIColor.clearColor; self.opaque=NO; }
     return self;
 }
 - (void)drawRect:(CGRect)rect {
@@ -66,7 +66,7 @@ static __weak PTControls* activeControls;
 }
 - (instancetype)initWithFrame:(CGRect)frame {
     if((self=[super initWithFrame:frame])) {
-        self.backgroundColor=UIColor.clearColor; self.multipleTouchEnabled=YES;
+        self.backgroundColor=UIColor.clearColor; self.opaque=NO; self.multipleTouchEnabled=YES;
         self.left=[[PTStick alloc] initWithFrame:CGRectZero]; self.left.axis=SDL_GAMEPAD_AXIS_LEFTX; self.left.accessibilityIdentifier=@"pt.touch.move"; [self addSubview:self.left];
         self.right=[[PTStick alloc] initWithFrame:CGRectZero]; self.right.axis=SDL_GAMEPAD_AXIS_RIGHTX; self.right.accessibilityIdentifier=@"pt.touch.look"; [self addSubview:self.right];
         self.buttons=[NSMutableArray new];
@@ -76,7 +76,7 @@ static __weak PTControls* activeControls;
             UIButton* button=[UIButton buttonWithType:UIButtonTypeCustom]; button.tag=tags[i];
             button.accessibilityLabel=(@[@"Action",@"Back",@"Zoom",@"Pause"])[i];
             [button setTitle:labels[i] forState:UIControlStateNormal]; button.titleLabel.font=[UIFont systemFontOfSize:i==0?24:11 weight:UIFontWeightMedium];
-            button.backgroundColor=[UIColor colorWithWhite:1 alpha:0.12]; button.layer.cornerRadius=24;
+            button.backgroundColor=[UIColor colorWithWhite:1 alpha:0.12]; button.opaque=NO; button.layer.cornerRadius=24;
             button.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.25].CGColor; button.layer.borderWidth=1;
             [button addTarget:self action:@selector(down:) forControlEvents:UIControlEventTouchDown|UIControlEventTouchDragEnter];
             [button addTarget:self action:@selector(up:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel|UIControlEventTouchDragExit];
