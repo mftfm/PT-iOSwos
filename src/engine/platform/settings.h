@@ -84,6 +84,23 @@ struct AppSettings {
     struct Graphics {
         int anisotropy = 0;
         bool enhanced_textures = false;
+#ifdef PT_IOS
+        // Mobile-safe defaults. User-saved settings still override these values,
+        // but a fresh iOS install should not start with desktop post-processing.
+        int shadow_quality = 1;
+        bool ambient_occlusion = false;
+        bool reflections = false;
+        bool bloom = false;
+        bool depth_of_field = false;
+        bool motion_blur = false;
+        bool lens_distortion = false;
+        bool lens_ghosts = false;
+        bool deband = true;
+        float film_grain = 0.25f;
+        float clarity = 0.0f;
+        int texture_detail = 1;
+        int ray_quality = 0;
+#else
         int shadow_quality = 3;
         bool ambient_occlusion = true;
         bool reflections = true;
@@ -97,6 +114,7 @@ struct AppSettings {
         float clarity = 0.0f;
         int texture_detail = 1;
         int ray_quality = 1;
+#endif
         bool operator==(const Graphics&) const = default;
     } graphics;
     struct Game {
