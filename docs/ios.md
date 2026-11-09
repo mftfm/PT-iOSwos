@@ -44,6 +44,28 @@ spawn helpers on iOS. VR, DLSS/FSR and enhanced-texture helper downloads are not
 part of this build. The original renderer still checks Vulkan feature support and
 can reject unsupported configurations; successful linking is not gameplay proof.
 
+
+## iOS memory and texture policy
+
+The iOS build uses one adaptive texture policy for every supported device generation.
+It samples the app's current physical-memory headroom when a texture is created; it
+does not maintain separate A14/A15 and low-RAM code paths or assume that advertised
+device RAM is available to the process. Lower headroom selects a smaller base mip
+before GPU image and staging allocations. When the GPU cannot allocate an image,
+the existing fallback releases enhanced textures and retries with lower mip levels.
+
+On iOS, predictive whole-stage prefetch and texture decode-ahead are disabled so
+the active stage is not competing with a second stage's decoded CPU assets. BC
+FTEX formats are routed through the renderer's capability-aware upload path; when
+the selected GPU cannot sample BC formats, the subresources are decoded to RGBA8.
+Deferred Vulkan upload staging is capped at 24 MiB on iOS.
+
+These measures reduce avoidable CPU/GPU memory overlap and allocation spikes. They
+do not guarantee a fixed frame rate or prevent every jetsam termination: Apple
+GPU resources use the device's unified memory, and sustained GPU load, thermal
+throttling, shader compilation, scene complexity and the OS process budget still
+affect performance. Physical-device gameplay testing remains required.
+
 ## Validation
 
 See `build/ios-validation.json` and `build/build-ios.log` for local evidence when
