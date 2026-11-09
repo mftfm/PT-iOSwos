@@ -391,13 +391,39 @@ void PromptTextures::Finish(Target& target, Painted painted) {
                 }
             }
             const gpu::Format source_format = ftex.Format();
-            const bool compressed = ftex.pixel_format == 2 || ftex.pixel_format == 3 || ftex.pixel_format == 4 ||
-                                    ftex.pixel_format == 5 || ftex.pixel_format == 8;
-            const bool decode_bc = compressed && !textures_->SupportsBcTextures();
-            const bool source_srgb = ftex.Srgb() && ftex.pixel_format != 5;
-            const gpu::Format upload_format = decode_bc ? (source_srgb ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm) : source_format;
+            bool compressed = false;
+            FormatBlockBytes(source_format, compressed);
+            gpu::Format upload_format = source_format;
+            std::vector<std::vector<uint8_t>> decoded_levels;
+            if (compressed) {
+                decoded_levels.reserve(mips.size());
+                std::vector<TextureMip> rgba_mips;
+                rgba_mips.reserve(mips.size());
+                for (uint32_t face = 0; face < ftex.faces; ++face) {
+                    for (uint32_t level = first; level < ftex.mip_count; ++level) {
+                        std::vector<uint8_t> rgba;
+                        if (!DecodeFtexSubresource(ftex, face, level, rgba)) {
+                            LogWarn("prompt textures: BC fallback decode failed for {}", texture.path);
+                            rgba_mips.clear();
+                            break;
+                        }
+                        decoded_levels.push_back(std::move(rgba));
+                        rgba_mips.push_back({ftex.MipWidth(level), ftex.MipHeight(level), decoded_levels.back()});
+                    }
+                    if (rgba_mips.empty()) break;
+                }
+                if (!rgba_mips.empty()) {
+                    upload_format = ftex.Srgb() && ftex.pixel_format != 5 ? gpu::Format::R8G8B8A8Srgb
+                                                                          : gpu::Format::R8G8B8A8Unorm;
+                    mips = std::move(rgba_mips);
+                } else {
+                    index = texture.original;
+                    texture.variants[painted.variant] = index;
+                    continue;
+                }
+            }
             index = textures_->Create(FtexStem(texture.path) + "#prompt:" + painted.variant, upload_format, mips,
-                                      ftex.faces, ftex.faces == 6, decode_bc ? &ftex : nullptr, first);
+                                      ftex.faces, ftex.faces == 6);
         }
         texture.variants[painted.variant] = index;
     }
