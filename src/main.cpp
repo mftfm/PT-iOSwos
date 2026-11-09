@@ -6829,7 +6829,10 @@ int RunGame(App& app, pt::Vfs& vfs) {
                             target_width = std::min(target_width, std::max(640u, ((app.options.width * 4u / 5u) & ~1u)));
                         }
                         if (app.window && app.options.width > target_width) {
-                            const uint32_t reduced_width = std::max(target_width, ((app.options.width * 4u / 5u) & ~1u));
+                            // Make one resize to the measured safe tier. Several
+                            // successive 20% reallocations would cause repeated
+                            // full-frame stalls while render targets are rebuilt.
+                            const uint32_t reduced_width = target_width;
                             int native_width = 0;
                             int native_height = 0;
                             if (SDL_GetWindowSizeInPixels(app.window, &native_width, &native_height) &&
