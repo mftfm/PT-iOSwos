@@ -1649,6 +1649,40 @@ void SyncNeuralToggle(App& app) {
 }
 
 void ApplyGraphicsSettings(App& app) {
+#ifdef PT_IOS
+    // Persisted PC settings can contain Ultra/RT/enhanced-texture options from
+    // another platform. They are not safe defaults for a unified-memory phone.
+    // Enforce a stable mobile renderer profile before wiring any GPU passes.
+    auto& mobile = app.settings.graphics;
+    bool capped = false;
+    auto cap = [&](int& value, int maximum) {
+        if (value > maximum) { value = maximum; capped = true; }
+    };
+    cap(mobile.shadow_quality, 1);
+    cap(mobile.anisotropy, 8);
+    cap(mobile.texture_detail, 1);
+    if (mobile.enhanced_textures || mobile.ambient_occlusion || mobile.reflections || mobile.bloom ||
+        mobile.depth_of_field || mobile.motion_blur || mobile.lens_distortion || mobile.lens_ghosts ||
+        mobile.ray_quality > 0 || app.settings.ray_tracing.shadows > 0 ||
+        app.settings.ray_tracing.ambient_occlusion || app.settings.ray_tracing.contact_shadows ||
+        app.settings.ray_tracing.reflections) {
+        capped = true;
+    }
+    mobile.enhanced_textures = false;
+    mobile.ambient_occlusion = false;
+    mobile.reflections = false;
+    mobile.bloom = false;
+    mobile.depth_of_field = false;
+    mobile.motion_blur = false;
+    mobile.lens_distortion = false;
+    mobile.lens_ghosts = false;
+    mobile.ray_quality = 0;
+    mobile.film_grain = std::min(mobile.film_grain, 0.25f);
+    app.settings.ray_tracing = pt::AppSettings::RayTracing{};
+    if (capped) {
+        pt::LogInfo("ios: applied stable mobile graphics caps (ray tracing/enhanced textures/post effects off, low shadows, 8x anisotropy max)");
+    }
+#endif
     const auto& g=app.settings.graphics;
     app.scene.graphics=g;
     app.scene.raytracing=RayTracingFromApp(app.settings);
