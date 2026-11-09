@@ -6782,10 +6782,21 @@ int RunGame(App& app, pt::Vfs& vfs) {
                 const bool low = pt::MemoryLow(1536.0, guard_vram_used, guard_vram_budget, 0.95);
 #ifdef PT_IOS
                 const bool memory_warning = PTIOSConsumeMemoryWarning();
+                const double sampled_headroom = pt::QuerySystemMemory().free_physical_mb;
+                const auto render_width_cap = [](double headroom_mb) -> uint32_t {
+                    if (headroom_mb < 512.0) return 640;
+                    if (headroom_mb < 768.0) return 768;
+                    if (headroom_mb < 1024.0) return 896;
+                    if (headroom_mb < 1536.0) return 1024;
+                    if (headroom_mb < 2048.0) return 1280;
+                    return 1600;
+                };
+                const bool needs_render_scale = app.window && low && app.options.width > render_width_cap(sampled_headroom);
 #else
                 const bool memory_warning = false;
+                const bool needs_render_scale = false;
 #endif
-                if (low != guard_low || memory_warning) {
+                if (low != guard_low || memory_warning || needs_render_scale) {
                     guard_low = low;
                     game.Stages().SetPrefetchAllowed(!low);
                     if (!low && !memory_warning) {
@@ -6799,11 +6810,14 @@ int RunGame(App& app, pt::Vfs& vfs) {
                         game.ReleaseUnusedAssets(memory_warning ? "iOS memory warning" : "iOS memory pressure");
                         const double headroom_after_cleanup = pt::QuerySystemMemory().free_physical_mb;
                         // Render targets are a large persistent GPU allocation.
-                        // If the process is still under pressure after releasing
-                        // optional/cached assets, reduce only the 3D scene extent.
-                        // The presentation surface and UI remain native resolution.
-                        if (app.window && (memory_warning || headroom_after_cleanup < 1536.0) && app.options.width > 640) {
-                            const uint32_t reduced_width = std::max(640u, ((app.options.width * 4u / 5u) & ~1u));
+                        // Progressively scale down only the 3D scene until it fits
+                        // the process headroom tier. UI/presentation stay native.
+                        uint32_t target_width = render_width_cap(headroom_after_cleanup);
+                        if (memory_warning && app.options.width > 640) {
+                            target_width = std::min(target_width, std::max(640u, ((app.options.width * 4u / 5u) & ~1u)));
+                        }
+                        if (app.window && app.options.width > target_width) {
+                            const uint32_t reduced_width = std::max(target_width, ((app.options.width * 4u / 5u) & ~1u));
                             int native_width = 0;
                             int native_height = 0;
                             if (SDL_GetWindowSizeInPixels(app.window, &native_width, &native_height) &&
@@ -6812,7 +6826,7 @@ int RunGame(App& app, pt::Vfs& vfs) {
                                 app.renderer.SetRenderExtent({static_cast<uint32_t>(size.width), static_cast<uint32_t>(size.height)});
                                 app.options.width = static_cast<uint32_t>(size.width);
                                 app.options.height = static_cast<uint32_t>(size.height);
-                                pt::LogWarn("ios: memory pressure reduced 3D render size to {}x{} (native UI remains {}x{}, {:.0f} MB app headroom)",
+                                pt::LogWarn("ios: adaptive memory profile set 3D render size to {}x{} (native UI remains {}x{}, {:.0f} MB headroom)",
                                             size.width, size.height, native_width, native_height, headroom_after_cleanup);
                             }
                         }
