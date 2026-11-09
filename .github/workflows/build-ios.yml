@@ -2,15 +2,14 @@
 name: Build PT-iOS IPA
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - 'fix/ios-a14-a15-bc-fallback'
   workflow_dispatch:
 
-# A branch update also synchronizes its PR. Build only the PR event so each
-# source revision gets one IPA job, and cancel superseded queued/in-progress work.
+# Build once per branch push and cancel any superseded revision.
 concurrency:
-  group: ios-ipa-${{ github.event.pull_request.number || github.ref }}
+  group: ios-ipa-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
