@@ -5,6 +5,7 @@
 void PTAttachTouchControls(SDL_Window* window);
 #include "../ios/input_display_policy.h"
 int PTIOSFrameLimit(int requested);
+bool PTIOSConsumeMemoryWarning();
 void PTIOSUseFullscreen(SDL_Window* window);
 #endif
 #include "engine/core/ascii.h"
@@ -6779,20 +6780,25 @@ int RunGame(App& app, pt::Vfs& vfs) {
                 guard_vram_budget /= 1048576.0;
                 static bool guard_low = false;
                 const bool low = pt::MemoryLow(1536.0, guard_vram_used, guard_vram_budget, 0.95);
-                if (low != guard_low) {
+#ifdef PT_IOS
+                const bool memory_warning = PTIOSConsumeMemoryWarning();
+#else
+                const bool memory_warning = false;
+#endif
+                if (low != guard_low || memory_warning) {
                     guard_low = low;
                     game.Stages().SetPrefetchAllowed(!low);
-                    if (!low) {
+                    if (!low && !memory_warning) {
                         pt::LogInfo("memory: room again; predictive stage prefetch remains disabled on iOS");
                     } else {
                         app.textures.SetMemoryPressure(true);
 #ifdef PT_IOS
                         // Stage changes intentionally retain old, unreferenced
-                        // models for reuse. Under iOS pressure, reclaim that cache
-                        // now; active/resident stage references remain protected.
-                        game.ReleaseUnusedAssets("iOS memory pressure");
+                        // models for reuse. An OS memory warning is also a cleanup
+                        // trigger, even before the sampled headroom threshold trips.
+                        game.ReleaseUnusedAssets(memory_warning ? "iOS memory warning" : "iOS memory pressure");
 #endif
-                        app.renderer.Context().LogMemoryReport("memory low");
+                        app.renderer.Context().LogMemoryReport(memory_warning ? "iOS memory warning" : "memory low");
                     }
                 }
             }
