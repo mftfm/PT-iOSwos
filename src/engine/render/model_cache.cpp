@@ -499,7 +499,7 @@ ModelCache::Released ModelCache::ReleaseUnused() {
         }
         if (entry.mesh) {
             released.mesh_bytes += entry.mesh->vertices.size + entry.mesh->indices.size;
-            scene_.Destroy(*entry.mesh);
+            scene_.Destroy(*entry.mesh, false);
         }
         for (const uint32_t texture : entry.textures) {
             if (const uint64_t bytes = textures_.ReleaseModelRef(texture)) {
@@ -515,9 +515,12 @@ ModelCache::Released ModelCache::ReleaseUnused() {
 }
 
 void ModelCache::Clear() {
+    if (!entries_.empty()) {
+        scene_.WaitIdle();
+    }
     for (auto& [path, entry] : entries_) {
         if (entry.mesh) {
-            scene_.Destroy(*entry.mesh);
+            scene_.Destroy(*entry.mesh, false);
         }
     }
     entries_.clear();
