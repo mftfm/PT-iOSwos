@@ -20,6 +20,7 @@
 <key>UIStatusBarHidden</key><true/>
 <key>UIViewControllerBasedStatusBarAppearance</key><false/>
 <key>UIFileSharingEnabled</key><true/>
+<key>UIApplicationSupportsIndirectInputEvents</key><true/>
 <key>LSSupportsOpeningDocumentsInPlace</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>P.T. uses your voice for the final puzzle when voice recognition is enabled.</string>
 </dict></plist>
