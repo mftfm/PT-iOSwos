@@ -53,6 +53,10 @@ does not maintain separate A14/A15 and low-RAM code paths or assume that adverti
 device RAM is available to the process. Lower headroom selects a smaller base mip
 before GPU image and staging allocations. When the GPU cannot allocate an image,
 the existing fallback releases enhanced textures and retries with lower mip levels.
+BC subresources are decoded one at a time directly into the upload staging buffer,
+using a reused CPU scratch allocation; the build does not retain a full second
+RGBA copy of every compressed texture. Oversized single staging uploads are
+submitted synchronously instead of exceeding the 24 MiB deferred-upload budget.
 
 On iOS, predictive whole-stage prefetch and texture decode-ahead are disabled so
 the active stage is not competing with a second stage's decoded CPU assets. BC
@@ -60,11 +64,14 @@ FTEX formats are routed through the renderer's capability-aware upload path; whe
 the selected GPU cannot sample BC formats, the subresources are decoded to RGBA8.
 Deferred Vulkan upload staging is capped at 24 MiB on iOS.
 
-On every iOS launch, graphics settings loaded from an older desktop configuration are
-clamped to a mobile-safe profile: ray tracing and enhanced texture replacements are
-off, shadows are limited to the low tier, anisotropy is capped at 8x, and expensive
-post effects are disabled. The FPS setting is limited to 60 Hz with VSync enabled;
-thermal pressure or Low Power Mode reduces it to 30 Hz.
+On every iOS launch, desktop settings are normalised before renderer creation:
+Vulkan is selected, HDR and VR are disabled, and desktop DLSS/FSR/frame-generation
+or neural-rendering choices are cleared. Graphics settings loaded from an older
+desktop configuration are also clamped to a mobile-safe profile: ray tracing and
+enhanced texture replacements are off, shadows are limited to the low tier,
+anisotropy is capped at 8x, and expensive post effects are disabled. The FPS
+setting defaults to 60 Hz, is limited to 60 Hz with VSync enabled, and thermal
+pressure or Low Power Mode reduces it to 30 Hz.
 
 An iOS memory-warning notification also invokes the same cleanup path as sampled
 process pressure. After optional texture copies and unreferenced stage models are
