@@ -358,17 +358,47 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         if (!model_scope_) Pin(it->second);
         return it->second;
     }
-    if (mips.empty() || (images_.size() >= kMaxTextures && (free_.empty() || cube))) {
+    if (mips.empty() || layers == 0 || mips.size() % layers != 0 ||
+        (images_.size() >= kMaxTextures && (free_.empty() || cube))) {
         return kWhite;
     }
     const bool enhanced = name.find("#enhanced-") != std::string::npos;
     gpu::ImageResource image;
     uint32_t mip_count = static_cast<uint32_t>(mips.size()) / layers;
     uint32_t dropped = 0;
-    if (memory_short_ && !enhanced && layers == 1 && mip_count > 1 && std::max(mips[0].width, mips[0].height) > 512) {
-        mips = mips.subspan(1);
+    const auto drop_largest_mip = [&] {
+        if (mip_count < 2 || mips.size() <= layers) return false;
+        // TextureMip arrays are face-major: [face0 mip0..N, face1 mip0..N, ...].
+        // Drop mip zero from every face, not just the first face.
+        mips = mips.subspan(layers);
         --mip_count;
         ++dropped;
+        return true;
+    };
+#ifdef PT_IOS
+    if (!enhanced && mip_count > 1) {
+        const double headroom_mb = QuerySystemMemory().free_physical_mb;
+        uint32_t max_dimension = 2048;
+        if (headroom_mb < 512.0) max_dimension = 64;
+        else if (headroom_mb < 768.0) max_dimension = 128;
+        else if (headroom_mb < 1024.0) max_dimension = 256;
+        else if (headroom_mb < 1536.0) max_dimension = 512;
+        else if (headroom_mb < 2048.0) max_dimension = 1024;
+        static std::atomic<uint32_t> last_logged_cap{0};
+        if (last_logged_cap.exchange(max_dimension) != max_dimension) {
+            LogInfo("textures: iOS app headroom {:.0f} MB; limiting new texture base levels to {} px", headroom_mb, max_dimension);
+        }
+        while (mip_count > 1 && std::max(mips[0].width, mips[0].height) > max_dimension) {
+            if (!drop_largest_mip()) break;
+        }
+        if (headroom_mb < 1536.0 && !memory_short_) {
+            memory_short_ = true;
+            LogWarn("textures: app headroom {:.0f} MB; entering adaptive low-memory texture mode", headroom_mb);
+        }
+    }
+#endif
+    if (memory_short_ && !enhanced && mip_count > 1 && std::max(mips[0].width, mips[0].height) > 512) {
+        drop_largest_mip();
     }
     const auto create_image = [&] {
         gpu::ImageDesc desc;
@@ -392,13 +422,11 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
             memory_short_ = true;
             LogWarn("textures: out of video memory: from now on textures over 512 px load without their largest mip");
         }
-        if (layers != 1 || mip_count < 2 || std::max(mips[1].width, mips[1].height) < 64) {
+        if (mip_count < 2 || std::max(mips[layers].width, mips[layers].height) <= 64 || !drop_largest_mip()) {
             LogWarn("texture: {} not loaded: out of video memory", name);
             return kWhite;
         }
-        mips = mips.subspan(1);
-        --mip_count;
-        ++dropped;
+        drop_largest_mip();
     }
     if (dropped) {
         LogWarn("texture: {} loaded at {}x{} without its {} largest mips: out of video memory", name, mips[0].width, mips[0].height, dropped);
@@ -583,6 +611,13 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
 }
 
 void TextureManager::DecodeAhead(const QarArchive& qar, const std::vector<std::string>& paths) {
+#ifdef PT_IOS
+    // Avoid retaining decompressed FTEX payloads while their expanded GPU images
+    // are also resident. iOS loads these VFX textures on demand.
+    (void)qar;
+    (void)paths;
+    return;
+#endif
     if (mods::Active()) {
         return;
     }
