@@ -7565,7 +7565,13 @@ int main(int argc, char** argv) {
     }
     ApplyGraphicsSettings(app);
     const pt::RayTracingSettings& rt = app.scene.raytracing;
+#ifdef PT_IOS
+    // The mobile graphics profile disables ray tracing; do not request its
+    // Vulkan feature/extension path on MoltenVK during device creation.
+    app.renderer.Context().want_ray_query = false;
+#else
     app.renderer.Context().want_ray_query = true;
+#endif
     pt::UpscaleHost::Get().SetStartupUpscaler(app.scene.upscale.kind);
     app.streamline_marker = StartStreamline(app, d3d12);
     int result = 1;
