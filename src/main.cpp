@@ -6749,7 +6749,11 @@ int RunGame(App& app, pt::Vfs& vfs) {
                     guard_low = low;
                     game.Stages().SetPrefetchAllowed(!low);
                     if (!low) {
+                        #ifdef PT_IOS
+                        pt::LogInfo("memory: headroom recovered; predictive stage prefetch remains disabled on iOS");
+#else
                         pt::LogInfo("memory: room again, stage prefetch may resume; texture mip policy stays conservative for this run");
+#endif
                     } else {
                         app.textures.SetMemoryPressure(true);
                         app.renderer.Context().LogMemoryReport("memory low");
