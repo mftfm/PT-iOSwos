@@ -6402,7 +6402,9 @@ int RunGame(App& app, pt::Vfs& vfs) {
         VkExtent2D base_render_extent{};
 #ifdef PT_IOS
         if (!vr && app.window) {
-            base_render_extent = {static_cast<uint32_t>(app.settings.display.width), static_cast<uint32_t>(app.settings.display.height)};
+            // Keep the startup/memory-policy extent. Saved desktop dimensions can have
+            // a different aspect ratio and override adaptive iOS render resolution.
+            base_render_extent = {app.options.width, app.options.height};
         } else
 #endif
         if (!vr && app.window && app.settings.display.fullscreen != 2) {
