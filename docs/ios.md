@@ -60,6 +60,20 @@ FTEX formats are routed through the renderer's capability-aware upload path; whe
 the selected GPU cannot sample BC formats, the subresources are decoded to RGBA8.
 Deferred Vulkan upload staging is capped at 24 MiB on iOS.
 
+On every iOS launch, graphics settings loaded from an older desktop configuration are
+clamped to a mobile-safe profile: ray tracing and enhanced texture replacements are
+off, shadows are limited to the low tier, anisotropy is capped at 8x, and expensive
+post effects are disabled. The FPS setting is limited to 60 Hz with VSync enabled;
+thermal pressure or Low Power Mode reduces it to 30 Hz.
+
+An iOS memory-warning notification also invokes the same cleanup path as sampled
+process pressure. After optional texture copies and unreferenced stage models are
+released, the 3D render extent is reduced by 20% if pressure remains. The UI and
+presentation surface stay at native resolution, and the renderer rebuilds its
+scene targets at the smaller size on the next frame. Mesh cache reclamation waits
+for the GPU once, then destroys the batch without repeating a device-idle wait for
+each mesh.
+
 These measures reduce avoidable CPU/GPU memory overlap and allocation spikes. They
 do not guarantee a fixed frame rate or prevent every jetsam termination: Apple
 GPU resources use the device's unified memory, and sustained GPU load, thermal
