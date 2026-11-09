@@ -464,6 +464,7 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         }
         if (mip_count < 2 || std::max(mips[1].width, mips[1].height) < 64 || !drop_largest_mip()) {
             LogWarn("texture: {} not loaded: out of video memory", name);
+            LogMemoryStatus("GPU texture image allocation failed", 0);
             return kWhite;
         }
     }
@@ -497,7 +498,8 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
     staging_desc.name = enhanced ? "enhanced textures" : "textures";
     if (!device_->CreateBuffer(staging_desc, staging)) {
         device_->DestroyImage(image);
-        LogWarn("texture: {} not uploaded: staging allocation failed", name);
+        LogWarn("texture: {} not uploaded: staging allocation failed ({} bytes)", name, total);
+        LogMemoryStatus("texture staging allocation failed", static_cast<size_t>(std::min<uint64_t>(total, std::numeric_limits<size_t>::max())));
         return kWhite;
     }
     std::vector<gpu::BufferImageCopy> regions;
