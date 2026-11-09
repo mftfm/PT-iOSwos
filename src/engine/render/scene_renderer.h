@@ -180,7 +180,7 @@ public:
     bool LoadResources(Vfs& vfs);
 
     std::unique_ptr<GpuMesh> Upload(const MeshData& data);
-    void Destroy(GpuMesh& mesh);
+    void Destroy(GpuMesh& mesh, bool wait_for_gpu = true);
     vk::Context& Context();
     gpu::Device& Gpu() { return *gpu_; }
     void WaitIdle() { gpu_->WaitIdle(); }

@@ -177,7 +177,11 @@ private:
     };
     std::vector<DeferredSubmit> deferred_;
     VkDeviceSize deferred_bytes_ = 0;
+#ifdef PT_IOS
+    static constexpr VkDeviceSize kDeferredStagingLimit = 24ull << 20;
+#else
     static constexpr VkDeviceSize kDeferredStagingLimit = 256ull << 20;
+#endif
     SwapchainHooks* swapchain_owner_ = nullptr;
 };
 

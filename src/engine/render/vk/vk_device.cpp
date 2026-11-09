@@ -39,6 +39,33 @@ Device::Device(pt::vk::Context& ctx) : ctx_(ctx) {
     info_.dynamic_depth_bias = true;
     info_.timestamp_period_ns = ctx.properties.limits.timestampPeriod;
     info_.max_sampler_anisotropy = ctx.properties.limits.maxSamplerAnisotropy;
+
+    VkPhysicalDeviceFeatures supported_features{};
+    vkGetPhysicalDeviceFeatures(ctx_.physical, &supported_features);
+    bool bc_supported = supported_features.textureCompressionBC == VK_TRUE;
+    constexpr VkFormat bc_formats[] = {
+        VK_FORMAT_BC1_RGBA_UNORM_BLOCK, VK_FORMAT_BC1_RGBA_SRGB_BLOCK,
+        VK_FORMAT_BC2_UNORM_BLOCK, VK_FORMAT_BC2_SRGB_BLOCK,
+        VK_FORMAT_BC3_UNORM_BLOCK, VK_FORMAT_BC3_SRGB_BLOCK,
+        VK_FORMAT_BC5_UNORM_BLOCK,
+        VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK,
+    };
+    constexpr VkImageUsageFlags bc_image_usage =
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    for (const VkFormat format : bc_formats) {
+        VkImageFormatProperties image_properties{};
+        const VkResult result = vkGetPhysicalDeviceImageFormatProperties(
+            ctx_.physical, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+            bc_image_usage, 0, &image_properties);
+        if (result != VK_SUCCESS) {
+            bc_supported = false;
+            break;
+        }
+    }
+    info_.supports_bc_textures = bc_supported;
+    LogInfo("vulkan: BC texture compression {}", bc_supported
+        ? "available"
+        : "unavailable; FTEX textures will be decoded on the CPU");
 }
 
 bool Device::CreateImage(const ImageDesc& desc, ImageResource& out) {

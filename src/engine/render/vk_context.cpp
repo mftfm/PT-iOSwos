@@ -329,7 +329,7 @@ bool Context::Init(SDL_Window* window, bool validation, bool want_hdr) {
             {"descriptorBindingUpdateUnusedWhilePending", have12.descriptorBindingUpdateUnusedWhilePending},
             {"descriptorBindingStorageBufferUpdateAfterBind", have12.descriptorBindingStorageBufferUpdateAfterBind},
             {"scalarBlockLayout", have12.scalarBlockLayout}, {"samplerAnisotropy", have2.features.samplerAnisotropy},
-            {"textureCompressionBC", have2.features.textureCompressionBC}, {"fillModeNonSolid", have2.features.fillModeNonSolid},
+            {"fillModeNonSolid", have2.features.fillModeNonSolid},
             {"shaderInt16", have2.features.shaderInt16}, {"shaderClipDistance", have2.features.shaderClipDistance},
         };
         bool complete = true;
@@ -342,6 +342,8 @@ bool Context::Init(SDL_Window* window, bool validation, bool want_hdr) {
         if (!complete) return false;
     }
 #endif
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(physical, &supported);
     VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     features13.dynamicRendering = VK_TRUE;
     features13.synchronization2 = VK_TRUE;
@@ -361,12 +363,10 @@ bool Context::Init(SDL_Window* window, bool validation, bool want_hdr) {
     VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &features12;
     features.features.samplerAnisotropy = VK_TRUE;
-    features.features.textureCompressionBC = VK_TRUE;
+    features.features.textureCompressionBC = supported.textureCompressionBC;
     features.features.fillModeNonSolid = VK_TRUE;
     features.features.shaderInt16 = VK_TRUE;
     features.features.shaderClipDistance = VK_TRUE;
-    VkPhysicalDeviceFeatures supported{};
-    vkGetPhysicalDeviceFeatures(physical, &supported);
     features.features.independentBlend = supported.independentBlend;
     features.features.depthBounds = supported.depthBounds;
     depth_bounds = supported.depthBounds == VK_TRUE;

@@ -63,7 +63,8 @@ public:
     bool Init(gpu::Device& device);
     void Shutdown();
 
-    uint32_t Create(const std::string& name, gpu::Format format, std::span<const TextureMip> mips, uint32_t layers = 1, bool cube = false);
+    uint32_t Create(const std::string& name, gpu::Format format, std::span<const TextureMip> mips, uint32_t layers = 1, bool cube = false,
+                    const FtexTexture* decode_source = nullptr, uint32_t source_first_level = 0);
     uint32_t Find(const std::string& name) const;
     class ModelScope {
     public:
@@ -78,6 +79,14 @@ public:
     void AddModelRef(uint32_t index);
     uint64_t ReleaseModelRef(uint32_t index);
     uint32_t FreeSlots() const { return static_cast<uint32_t>(free_.size()); }
+    // Keep using reduced texture mip levels after the first low-memory warning in this run.
+    void SetMemoryPressure(bool pressured) {
+        if (!pressured) return;
+        memory_short_ = true;
+        // Enhanced replacements are optional copies of original assets. Drop
+        // them before reclaiming cached stage models/textures.
+        ReleaseEnhancedTextures("system memory pressure");
+    }
     uint32_t LoadFox(const QarArchive& qar, const std::string& path, bool* ok = nullptr, bool raw = false);
     uint32_t LoadImageFile(const std::filesystem::path& path, const std::string& key);
     void DecodeAhead(const QarArchive& qar, const std::vector<std::string>& paths);

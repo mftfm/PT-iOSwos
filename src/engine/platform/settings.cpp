@@ -250,6 +250,15 @@ bool LoadAppSettings(const std::filesystem::path& path, AppSettings& out) {
     out.display.height = std::clamp(out.display.height, 240, 16384);
     out.display.fullscreen = std::clamp(out.display.fullscreen, 0, 2);
     out.display.fps_limit = out.display.fps_limit <= 0 ? 0 : std::clamp(out.display.fps_limit, 20, 1000);
+#ifdef PT_IOS
+    // A mobile game must not request uncapped/120+ presentation pacing on an
+    // iPhone. Keep a user-selected 20-60 cap; translate "unlimited" to 60.
+    if (out.display.fps_limit <= 0 || out.display.fps_limit > 60) {
+        out.display.fps_limit = 60;
+        LogInfo("settings: iOS frame limit capped at 60 Hz for sustained performance");
+    }
+    out.display.vsync = true;
+#endif
     out.display.letterbox = std::clamp(out.display.letterbox, 0, 2);
     out.input.mouse_sensitivity = std::clamp(out.input.mouse_sensitivity, 0.05f, 20.0f);
     out.input.gamepad_sensitivity = std::isfinite(out.input.gamepad_sensitivity) ? std::clamp(out.input.gamepad_sensitivity, 0.25f, 4.0f) : 1.0f;

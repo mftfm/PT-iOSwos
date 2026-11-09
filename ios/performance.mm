@@ -1,6 +1,28 @@
-#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#include <atomic>
 #include <SDL3/SDL.h>
 #include "thermal_policy.h"
+
+static std::atomic<bool> g_ios_memory_warning{false};
+
+@interface PTIOSMemoryWarningObserver : NSObject
+@end
+
+@implementation PTIOSMemoryWarningObserver
++ (void)load {
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidReceiveMemoryWarningNotification
+                                                      object:nil
+                                                       queue:nil
+                                                  usingBlock:^(__unused NSNotification* notification) {
+        g_ios_memory_warning.store(true, std::memory_order_relaxed);
+    }];
+}
+@end
+
+bool PTIOSConsumeMemoryWarning() {
+    return g_ios_memory_warning.exchange(false, std::memory_order_acq_rel);
+}
+
 int PTIOSFrameLimit(int requested) {
     static pt::ios::ThermalPolicy policy;
     static double next_poll = 0;

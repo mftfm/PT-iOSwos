@@ -12,7 +12,10 @@ struct ThermalPolicy {
         } else if (reduced && thermal == 0 && now >= recover_after) {
             reduced = false;
         }
-        return std::min(requested > 0 ? requested : 120, reduced ? 30 : 120);
+        // A stable 60 Hz target is preferable to chasing 120 Hz on a
+        // sustained 3D workload; serious thermal state or Low Power Mode drops
+        // to 30 Hz, then recovers only after a full cool-down interval.
+        return std::min(requested > 0 ? requested : 60, reduced ? 30 : 60);
     }
 };
 }

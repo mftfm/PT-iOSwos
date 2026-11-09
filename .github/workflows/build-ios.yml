@@ -2,7 +2,26 @@
 name: Build PT-iOS IPA
 
 on:
+  push:
+    branches:
+      - 'fix/ios-a14-a15-bc-fallback'
   workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS hosted runner to use for the iOS cross-build
+        required: true
+        type: choice
+        default: macos-15-intel
+        options:
+          - macos-15-intel
+          - macos-26-intel
+          - macos-15
+
+# Keep one current build and at most one pending build. Do not cancel a
+# runner-acquisition attempt just because another manual dispatch was clicked.
+concurrency:
+  group: ios-ipa-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -10,8 +29,8 @@ permissions:
 jobs:
   build:
     name: Build unsigned iOS IPA
-    runs-on: macos-15
-    timeout-minutes: 60
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
+    timeout-minutes: 75
 
     steps:
       - name: Checkout source
@@ -21,10 +40,23 @@ jobs:
         run: |
           set -euxo pipefail
           uname -a
+          uname -m
+          sw_vers
           brew --prefix
           xcodebuild -version
           cmake --version
           ninja --version
+          df -h /
+
+      - name: Cache iOS dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/ios-device/_deps
+            build/vendor/MoltenVK-ios.tar
+          key: ios-deps-${{ inputs.runner || 'macos-15-intel' }}-${{ hashFiles('cmake/Dependencies.cmake', 'cmake/IOS.cmake', 'script/build_ios.sh') }}
+          restore-keys: |
+            ios-deps-${{ inputs.runner || 'macos-15-intel' }}-
 
       - name: Install dependencies
         run: |
@@ -34,9 +66,11 @@ jobs:
       - name: Verify Vulkan tools
         run: |
           set -euxo pipefail
-          ls -l /opt/homebrew/include/vulkan/vulkan.h
-          ls -l /opt/homebrew/lib/libvulkan.dylib
-          ls -l /opt/homebrew/bin/glslc
+          BREW_PREFIX="$(brew --prefix)"
+          test -f "$BREW_PREFIX/include/vulkan/vulkan.h"
+          test -f "$BREW_PREFIX/lib/libvulkan.dylib"
+          test -x "$BREW_PREFIX/bin/glslc"
+          echo "Using Homebrew at $BREW_PREFIX"
 
       - name: Compile PT-iOS
         id: compile

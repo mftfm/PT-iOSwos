@@ -305,6 +305,7 @@ bool DeviceImpl::Init(std::string& error) {
     info_.dedicated_video_memory = adapter.DedicatedVideoMemory;
     info_.ray_query = options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1;
     info_.depth_bounds = options2.DepthBoundsTestSupported != FALSE;
+    info_.supports_bc_textures = true;
     info_.dynamic_depth_bias = has16 && options16.DynamicDepthBiasSupported;
     {
         const char* env = std::getenv("PT_D3D12_GPU_UPLOAD");

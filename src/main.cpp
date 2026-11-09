@@ -5,6 +5,7 @@
 void PTAttachTouchControls(SDL_Window* window);
 #include "../ios/input_display_policy.h"
 int PTIOSFrameLimit(int requested);
+bool PTIOSConsumeMemoryWarning();
 void PTIOSUseFullscreen(SDL_Window* window);
 #endif
 #include "engine/core/ascii.h"
@@ -1649,6 +1650,40 @@ void SyncNeuralToggle(App& app) {
 }
 
 void ApplyGraphicsSettings(App& app) {
+#ifdef PT_IOS
+    // Persisted PC settings can contain Ultra/RT/enhanced-texture options from
+    // another platform. They are not safe defaults for a unified-memory phone.
+    // Enforce a stable mobile renderer profile before wiring any GPU passes.
+    auto& mobile = app.settings.graphics;
+    bool capped = false;
+    auto cap = [&](int& value, int maximum) {
+        if (value > maximum) { value = maximum; capped = true; }
+    };
+    cap(mobile.shadow_quality, 1);
+    cap(mobile.anisotropy, 8);
+    cap(mobile.texture_detail, 1);
+    if (mobile.enhanced_textures || mobile.ambient_occlusion || mobile.reflections || mobile.bloom ||
+        mobile.depth_of_field || mobile.motion_blur || mobile.lens_distortion || mobile.lens_ghosts ||
+        mobile.ray_quality > 0 || app.settings.ray_tracing.shadows > 0 ||
+        app.settings.ray_tracing.ambient_occlusion || app.settings.ray_tracing.contact_shadows ||
+        app.settings.ray_tracing.reflections) {
+        capped = true;
+    }
+    mobile.enhanced_textures = false;
+    mobile.ambient_occlusion = false;
+    mobile.reflections = false;
+    mobile.bloom = false;
+    mobile.depth_of_field = false;
+    mobile.motion_blur = false;
+    mobile.lens_distortion = false;
+    mobile.lens_ghosts = false;
+    mobile.ray_quality = 0;
+    mobile.film_grain = std::min(mobile.film_grain, 0.25f);
+    app.settings.ray_tracing = pt::AppSettings::RayTracing{};
+    if (capped) {
+        pt::LogInfo("ios: applied stable mobile graphics caps (ray tracing/enhanced textures/post effects off, low shadows, 8x anisotropy max)");
+    }
+#endif
     const auto& g=app.settings.graphics;
     app.scene.graphics=g;
     app.scene.raytracing=RayTracingFromApp(app.settings);
@@ -6745,14 +6780,73 @@ int RunGame(App& app, pt::Vfs& vfs) {
                 guard_vram_budget /= 1048576.0;
                 static bool guard_low = false;
                 const bool low = pt::MemoryLow(1536.0, guard_vram_used, guard_vram_budget, 0.95);
-                if (low != guard_low) {
+#ifdef PT_IOS
+                const bool memory_warning = PTIOSConsumeMemoryWarning();
+                const double sampled_headroom = pt::QuerySystemMemory().free_physical_mb;
+                const auto render_width_cap = [](double headroom_mb, double gpu_used_mb, double gpu_budget_mb) -> uint32_t {
+                    uint32_t cap = 1600;
+                    if (headroom_mb < 512.0) cap = 640;
+                    else if (headroom_mb < 768.0) cap = 768;
+                    else if (headroom_mb < 1024.0) cap = 896;
+                    else if (headroom_mb < 1536.0) cap = 1024;
+                    else if (headroom_mb < 2048.0) cap = 1280;
+                    // Apple GPUs share physical memory with the CPU, but still
+                    // expose a driver allocation budget. Use it as an additional
+                    // signal instead of assuming that process headroom alone
+                    // describes render-target pressure.
+                    if (gpu_budget_mb > 0.0) {
+                        const double fraction = gpu_used_mb / gpu_budget_mb;
+                        if (fraction >= 0.97) cap = std::min(cap, 768u);
+                        else if (fraction >= 0.93) cap = std::min(cap, 896u);
+                        else if (fraction >= 0.88) cap = std::min(cap, 1280u);
+                    }
+                    return cap;
+                };
+                const bool needs_render_scale = app.window && low &&
+                    app.options.width > render_width_cap(sampled_headroom, guard_vram_used, guard_vram_budget);
+#else
+                const bool memory_warning = false;
+                const bool needs_render_scale = false;
+#endif
+                if (low != guard_low || memory_warning || needs_render_scale) {
                     guard_low = low;
                     game.Stages().SetPrefetchAllowed(!low);
-                    if (!low) {
-                        pt::LogInfo("memory: room again, stage prefetch may resume; texture mip policy stays conservative for this run");
+                    if (!low && !memory_warning) {
+                        pt::LogInfo("memory: room again; predictive stage prefetch remains disabled on iOS");
                     } else {
                         app.textures.SetMemoryPressure(true);
-                        app.renderer.Context().LogMemoryReport("memory low");
+#ifdef PT_IOS
+                        // Stage changes intentionally retain old, unreferenced
+                        // models for reuse. An OS memory warning is also a cleanup
+                        // trigger, even before the sampled headroom threshold trips.
+                        game.ReleaseUnusedAssets(memory_warning ? "iOS memory warning" : "iOS memory pressure");
+                        const double headroom_after_cleanup = pt::QuerySystemMemory().free_physical_mb;
+                        // Render targets are a large persistent GPU allocation.
+                        // Progressively scale down only the 3D scene until it fits
+                        // the process headroom tier. UI/presentation stay native.
+                        uint32_t target_width = render_width_cap(headroom_after_cleanup, guard_vram_used, guard_vram_budget);
+                        if (memory_warning && app.options.width > 640) {
+                            target_width = std::min(target_width, std::max(640u, ((app.options.width * 4u / 5u) & ~1u)));
+                        }
+                        if (app.window && app.options.width > target_width) {
+                            // Make one resize to the measured safe tier. Several
+                            // successive 20% reallocations would cause repeated
+                            // full-frame stalls while render targets are rebuilt.
+                            const uint32_t reduced_width = target_width;
+                            int native_width = 0;
+                            int native_height = 0;
+                            if (SDL_GetWindowSizeInPixels(app.window, &native_width, &native_height) &&
+                                native_width > 0 && native_height > 0 && reduced_width < app.options.width) {
+                                const auto size = pt::ios::FitRenderWidth(native_width, native_height, static_cast<int>(reduced_width));
+                                app.renderer.SetRenderExtent({static_cast<uint32_t>(size.width), static_cast<uint32_t>(size.height)});
+                                app.options.width = static_cast<uint32_t>(size.width);
+                                app.options.height = static_cast<uint32_t>(size.height);
+                                pt::LogWarn("ios: adaptive memory profile set 3D render size to {}x{} (native UI remains {}x{}, {:.0f} MB headroom)",
+                                            size.width, size.height, native_width, native_height, headroom_after_cleanup);
+                            }
+                        }
+#endif
+                        app.renderer.Context().LogMemoryReport(memory_warning ? "iOS memory warning" : "memory low");
                     }
                 }
             }
@@ -6812,7 +6906,7 @@ int RunGame(App& app, pt::Vfs& vfs) {
             cap = PTIOSFrameLimit(cap);
             static int ios_logged_cap = -1;
             if (cap != ios_logged_cap) {
-                pt::LogInfo("ios: effective frame limit {} (120 ceiling; thermal/power protection may lower it)", cap);
+                pt::LogInfo("ios: effective frame limit {} (60 Hz mobile target; thermal/power protection may lower it to 30 Hz)", cap);
                 ios_logged_cap = cap;
             }
 #endif
@@ -7309,7 +7403,18 @@ int main(int argc, char** argv) {
                                                                     : UserDataDir() / "pt.ini";
     const bool settings_loaded = !app.settings_path.empty() && pt::LoadAppSettings(app.settings_path, app.settings);
 #ifdef PT_IOS
+    // This binary is a Vulkan/MoltenVK mobile build. Do not let a copied desktop
+    // pt.ini select D3D12, DLSS/FSR frame generation, HDR or VR during bootstrap.
     app.settings.display.fullscreen = 1;
+    app.settings.display.rendering_api = "vulkan";
+    app.settings.display.rendering_api_asked = true;
+    app.settings.display.hdr = false;
+    app.settings.display.vsync = true;
+    app.settings.vr.enabled = false;
+    app.settings.upscaling.upscaler = "off";
+    app.settings.upscaling.frame_generation = "off";
+    app.settings.upscaling.neural_rendering = "off";
+    app.settings.upscaling.ray_reconstruction = false;
 #endif
 #ifdef PT_D3D12_GAME
     pt::SetD3D12RunsGame(true);
@@ -7409,10 +7514,20 @@ int main(int argc, char** argv) {
         PTAttachTouchControls(app.window);
         int native_width=0,native_height=0;
         if (SDL_GetWindowSizeInPixels(app.window,&native_width,&native_height) && native_width>0 && native_height>0) {
-            const auto size=pt::ios::FitRenderWidth(native_width,native_height,app.settings.display.width);
-            app.settings.display.width=size.width; app.settings.display.height=size.height;
+            const double headroom_mb = pt::QuerySystemMemory().free_physical_mb;
+            // Keep native-resolution UI/presentation, but scale the scene target
+            // to the app's real process headroom instead of device-name heuristics.
+            int memory_width_cap = 1600;
+            if (headroom_mb < 512.0) memory_width_cap = 960;
+            else if (headroom_mb < 768.0) memory_width_cap = 1088;
+            else if (headroom_mb < 1024.0) memory_width_cap = 1216;
+            else if (headroom_mb < 1536.0) memory_width_cap = 1344;
+            else if (headroom_mb < 2048.0) memory_width_cap = 1472;
+            const int requested_width = std::min(app.settings.display.width, memory_width_cap);
+            const auto size=pt::ios::FitRenderWidth(native_width,native_height,requested_width);
             app.options.width=size.width; app.options.height=size.height;
-            pt::LogInfo("ios: native {}x{}, render {}x{} (display aspect)",native_width,native_height,size.width,size.height);
+            pt::LogInfo("ios: native {}x{}, scene {}x{}, app headroom {:.0f} MB (adaptive render scale; UI stays native)",
+                        native_width,native_height,size.width,size.height,headroom_mb);
         }
 #endif
         if (SDL_GetWindowFlags(app.window) & SDL_WINDOW_MINIMIZED) SDL_RestoreWindow(app.window);
@@ -7476,7 +7591,13 @@ int main(int argc, char** argv) {
     }
     ApplyGraphicsSettings(app);
     const pt::RayTracingSettings& rt = app.scene.raytracing;
+#ifdef PT_IOS
+    // The mobile graphics profile disables ray tracing; do not request its
+    // Vulkan feature/extension path on MoltenVK during device creation.
+    app.renderer.Context().want_ray_query = false;
+#else
     app.renderer.Context().want_ray_query = true;
+#endif
     pt::UpscaleHost::Get().SetStartupUpscaler(app.scene.upscale.kind);
     app.streamline_marker = StartStreamline(app, d3d12);
     int result = 1;

@@ -10,6 +10,7 @@
 #include "engine/assets/fmdl.h"
 #include "engine/assets/gltf_model.h"
 #include "engine/core/log.h"
+#include "engine/core/memory_status.h"
 #include "engine/core/parallel_for.h"
 #include "engine/fs/mods.h"
 
@@ -241,6 +242,13 @@ StageManager::ParsedStage StageManager::Parse(Vfs& vfs, const std::string& fpk_p
 }
 
 void StageManager::StartPrefetch(const std::string& fpk_path) {
+#ifdef PT_IOS
+    // Keep stage parsing/loading on demand on iOS; overlapping the next stage's
+    // CPU assets with the active stage is a common source of jetsam.
+    (void)fpk_path;
+    DropPrefetch();
+    return;
+#endif
     DropPrefetch();
     prefetch_path_ = fpk_path;
     auto known = std::make_shared<KnownAssets>(KnownAssets{models_.Paths(), models_.Textures().Names(), {}});
@@ -347,12 +355,30 @@ std::unique_ptr<Stage> StageManager::Load(const std::string& fpk_path, const std
     std::unordered_set<std::string> referenced;
     for (const auto& file : stage->files) {
         for (const auto& placement : file->static_models) {
+            const bool first_reference = referenced.insert(placement.model_file).second;
+#if defined(PT_IOS)
+            if (first_reference) {
+                const SystemMemory memory = QuerySystemMemory();
+                if (memory.free_physical_mb < 1536.0 || memory.commit_headroom_mb < 1536.0) {
+                    models_.Textures().SetMemoryPressure(true);
+                    LogWarn("memory: stage {} has {:.0f} MB app headroom before model {}; loading large textures without their largest mip",
+                            fpk_path, memory.free_physical_mb, placement.model_file);
+                }
+                LogInfo("stage: model begin {} (app headroom {:.0f} MB)", placement.model_file, memory.free_physical_mb);
+            }
+#endif
             const auto model_started = clock::now();
             const auto pre_model = parsed.models.find(placement.model_file);
             const ModelEntry* model = models_.Get(placement.model_file, pre_model != parsed.models.end() ? pre_model->second.get() : nullptr);
-            if (referenced.insert(placement.model_file).second) {
+            if (first_reference) {
                 models_.AddStageRef(placement.model_file);
                 stage->model_refs.push_back(placement.model_file);
+#if defined(PT_IOS)
+                const SystemMemory memory = QuerySystemMemory();
+                LogInfo("stage: model end {} ({}, app headroom {:.0f} MB, textures {}, materials {})",
+                        placement.model_file, model ? "ready" : "missing/failed", memory.free_physical_mb,
+                        models_.Textures().TextureCount(), models_.Textures().MaterialCount());
+#endif
             }
             const auto model_done = clock::now();
             models_ms += ms(model_started, model_done);

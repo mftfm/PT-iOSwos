@@ -13,22 +13,38 @@ if ! echo "$HASH  $ARCHIVE" | shasum -a 256 -c - >/dev/null 2>&1; then
   mv "$ARCHIVE.download" "$ARCHIVE"
 fi
 if [ ! -d "$VENDOR/MoltenVK" ]; then tar -xf "$ARCHIVE" -C "$VENDOR"; fi
-# Reuse fetched upstream sources, but keep all target objects separate from macOS.
+# Homebrew lives under /opt/homebrew on Apple Silicon and /usr/local on Intel.
+# Keep all host-tool lookups architecture-independent; the actual app target remains arm64 iOS.
+BREW_PREFIX="$(brew --prefix)"
+for TOOL in "${BREW_PREFIX}/include/vulkan/vulkan.h" "${BREW_PREFIX}/lib/libvulkan.dylib" "${BREW_PREFIX}/bin/glslc"; do
+  if [ ! -e "$TOOL" ]; then
+    echo "Missing Vulkan build dependency: $TOOL" >&2
+    exit 1
+  fi
+done
+
+# Reuse cached iOS FetchContent sources first, then the macOS build's source tree.
+# Keep all target objects separate from macOS.
 FETCH_ARGS=()
 for DEPENDENCY in sdl3 zlib whisper; do
-  SOURCE="$ROOT/build/macos/_deps/${DEPENDENCY}-src"
-  [ -f "$SOURCE/CMakeLists.txt" ] || continue
-  NAME="$(basename "$SOURCE" -src | tr '[:lower:]-' '[:upper:]_')"
-  FETCH_ARGS+=("-DFETCHCONTENT_SOURCE_DIR_${NAME}=$SOURCE")
+  for SOURCE in "$BUILD/_deps/${DEPENDENCY}-src" "$ROOT/build/macos/_deps/${DEPENDENCY}-src"; do
+    if [ -f "$SOURCE/CMakeLists.txt" ]; then
+      NAME="$(basename "$SOURCE" -src | tr '[:lower:]-' '[:upper:]_')"
+      FETCH_ARGS+=("-DFETCHCONTENT_SOURCE_DIR_${NAME}=$SOURCE")
+      break
+    fi
+  done
 done
+
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
   -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 \
   -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=18.0 -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
-  -DVulkan_INCLUDE_DIR=/opt/homebrew/include \
-  -DVulkan_LIBRARY=/opt/homebrew/lib/libvulkan.dylib \
-  -DVulkan_GLSLC_EXECUTABLE=/opt/homebrew/bin/glslc \
+  -DVulkan_INCLUDE_DIR="${BREW_PREFIX}/include" \
+  -DVulkan_LIBRARY="${BREW_PREFIX}/lib/libvulkan.dylib" \
+  -DVulkan_GLSLC_EXECUTABLE="${BREW_PREFIX}/bin/glslc" \
+  -DFETCHCONTENT_BASE_DIR="$BUILD/_deps" \
   -DPT_MOLTENVK_ROOT="$VENDOR/MoltenVK" \
   -DPT_IOS_GAME_DIR="$GAME_DIR" \
   -DPT_UPSCALERS=OFF -DPT_OPENXR=OFF -DPT_METALFX=ON \
