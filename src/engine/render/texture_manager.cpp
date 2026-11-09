@@ -502,13 +502,16 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
     }
     std::vector<gpu::BufferImageCopy> regions;
     regions.reserve(static_cast<size_t>(layers) * mip_count);
+    // Reuse one temporary RGBA buffer across BC subresources. Per-mip
+    // construction/free churn can otherwise create allocator spikes at stage load.
+    std::vector<uint8_t> decoded;
     uint64_t offset = 0;
     for (uint32_t layer = 0; layer < layers; ++layer) {
         for (uint32_t level = 0; level < mip_count; ++level) {
             const TextureMip& mip = mips[layer * mip_count + level];
-            std::vector<uint8_t> decoded;
             std::span<const uint8_t> upload_data = mip.data;
             if (decode_bc) {
+                decoded.clear();
                 if (!DecodeFtexSubresource(*decode_source, layer, source_first_level + level, decoded)) {
                     device_->DestroyBuffer(staging);
                     device_->DestroyImage(image);
