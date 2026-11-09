@@ -668,6 +668,12 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
 }
 
 void TextureManager::DecodeAhead(const QarArchive& qar, const std::vector<std::string>& paths) {
+#ifdef PT_IOS
+    // Do not retain decoded CPU FTEX payloads alongside resident GPU images.
+    (void)qar;
+    (void)paths;
+    return;
+#endif
     if (mods::Active()) {
         return;
     }
