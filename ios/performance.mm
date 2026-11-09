@@ -19,7 +19,7 @@ static std::atomic<bool> g_ios_memory_warning{false};
 }
 @end
 
-extern "C" bool PTIOSConsumeMemoryWarning() {
+bool PTIOSConsumeMemoryWarning() {
     return g_ios_memory_warning.exchange(false, std::memory_order_acq_rel);
 }
 
