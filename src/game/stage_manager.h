@@ -193,10 +193,14 @@ public:
     void PrefetchMazeFor(std::string_view floor);
     uint32_t LoadCount() const { return load_count_; }
     void SetPrefetchAllowed(bool allowed) {
+#ifdef PT_IOS
+        (void)allowed;
+        prefetch_allowed_ = false;
+        DropPrefetch();
+#else
         prefetch_allowed_ = allowed;
-        if (!allowed) {
-            DropPrefetch();
-        }
+        if (!allowed) DropPrefetch();
+#endif
     }
 private:
     std::shared_ptr<const std::vector<GeomTriangle>> Surfaces(const std::string& geom_file, const std::string& model_file,
@@ -257,7 +261,11 @@ private:
     std::vector<CollisionOwners> collision_owners_;
     std::unique_ptr<PendingCollision> pending_collision_;
     bool collision_deferrable_ = false;
+#ifdef PT_IOS
+    bool prefetch_allowed_ = false;
+#else
     bool prefetch_allowed_ = true;
+#endif
     std::string prefetch_path_;
     struct Prefetch {
         ParsedStage parsed;
