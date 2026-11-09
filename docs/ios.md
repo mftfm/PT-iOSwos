@@ -247,11 +247,17 @@ indexing, update-after-bind, timeline semaphores, dynamic rendering, synchroniza
 and shader clip distance remain required by the current renderer.
 
 On iOS, `os_proc_available_memory()` supplies the app's remaining process-memory
-allocation budget (not total device free RAM) for the existing memory-pressure guard. Under pressure the game stops stage
-prefetching, releases optional enhanced textures, and reduces the largest mip level
-of subsequent large texture uploads. Full archive read-ahead is disabled by default
-on iOS so launch does not populate more than a gigabyte of file cache before gameplay;
-`PT_PREFETCH=1` opts back in for diagnostics.
+allocation budget (not total device free RAM). Predictive whole-stage prefetch is
+disabled for the entire iOS session because its background parser can retain decoded
+FMDL/FTEX payloads while the previous stage and GPU images are still resident. VFX
+texture decode-ahead is also disabled; textures are loaded on demand. The texture
+manager selects a maximum base-mip dimension per upload from live process headroom
+(2048/1024/512/256/128/64 px tiers), applies the limit before image and staging
+allocations, and drops cube-map mips face-by-face using the correct face-major layout.
+Deferred Vulkan staging is capped at 24 MiB on iOS (256 MiB elsewhere). These
+safeguards trade texture sharpness and some loading latency for a larger memory margin.
+Full archive read-ahead remains disabled by default on iOS; `PT_PREFETCH=1` is only
+for diagnostics.
 
 These are compatibility and memory safeguards, not proof of flawless gameplay.
 The iPhone 12/A14 and iPhone 13/A15 still require a real-device build and tests for
