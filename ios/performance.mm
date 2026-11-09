@@ -35,5 +35,18 @@ int PTIOSFrameLimit(int requested) {
         low_power = info.lowPowerModeEnabled;
         next_poll = now + 1;
     }
-    return policy.FrameLimit(requested, thermal, low_power, now);
+    const int effective = policy.FrameLimit(requested, thermal, low_power, now);
+    static int last_thermal = -1;
+    static int last_requested = -1;
+    static int last_effective = -1;
+    static bool last_low_power = false;
+    if (thermal != last_thermal || low_power != last_low_power || requested != last_requested || effective != last_effective) {
+        SDL_Log("ios: thermal state %d, low power %s, requested FPS limit %d, effective FPS limit %d",
+                thermal, low_power ? "on" : "off", requested, effective);
+        last_thermal = thermal;
+        last_low_power = low_power;
+        last_requested = requested;
+        last_effective = effective;
+    }
+    return effective;
 }
