@@ -556,7 +556,15 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
         to_read.new_layout = gpu::Layout::ShaderReadOnly;
         list.Barrier(to_read);
     };
-    if (upload_wait) {
+#ifdef PT_IOS
+    // A single upload larger than the deferred staging budget must not bypass
+    // the budget by becoming one oversized in-flight staging allocation.
+    constexpr uint64_t kIosDeferredUploadLimit = 24ull << 20;
+    const bool synchronous_upload = upload_wait || staging.size > kIosDeferredUploadLimit;
+#else
+    const bool synchronous_upload = upload_wait;
+#endif
+    if (synchronous_upload) {
         device_->Submit(record_upload);
         device_->DestroyBuffer(staging);
     } else {
