@@ -16,6 +16,7 @@
 #include "engine/assets/ftex.h"
 #include "engine/assets/enhanced_textures.h"
 #include "engine/core/log.h"
+#include "engine/core/memory_status.h"
 #include "engine/fs/mods.h"
 #include "engine/render/vk/vk_device.h"
 
