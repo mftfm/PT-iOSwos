@@ -581,6 +581,26 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
     while (first_level < ftex.mip_count && ftex.mips[first_level].empty()) {
         ++first_level;
     }
+#ifdef PT_IOS
+    // BC formats are not sampleable on the A14/A15 Metal GPU path through
+    // MoltenVK. Reduce the source mip chain before CPU expansion so the fallback
+    // does not temporarily allocate a full-resolution RGBA copy of every mip.
+    bool source_compressed = false;
+    FormatBlockBytes(ftex.Format(), source_compressed);
+    if (source_compressed) {
+        const double headroom_mb = QuerySystemMemory().free_physical_mb;
+        uint32_t max_dimension = 2048;
+        if (headroom_mb < 512.0) max_dimension = 64;
+        else if (headroom_mb < 768.0) max_dimension = 128;
+        else if (headroom_mb < 1024.0) max_dimension = 256;
+        else if (headroom_mb < 1536.0) max_dimension = 512;
+        else if (headroom_mb < 2048.0) max_dimension = 1024;
+        while (first_level + 1 < ftex.mip_count &&
+               std::max(ftex.MipWidth(first_level), ftex.MipHeight(first_level)) > max_dimension) {
+            ++first_level;
+        }
+    }
+#endif
     std::vector<TextureMip> mips;
     for (uint32_t face = 0; face < ftex.faces; ++face) {
         for (uint32_t level = first_level; level < ftex.mip_count; ++level) {
@@ -590,6 +610,32 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
     }
     bool compressed = false;
     FormatBlockBytes(ftex.Format(), compressed);
+    gpu::Format upload_format = ftex.Format();
+#ifdef PT_IOS
+    std::vector<std::vector<uint8_t>> decoded_levels;
+    if (compressed) {
+        decoded_levels.reserve(mips.size());
+        std::vector<TextureMip> rgba_mips;
+        rgba_mips.reserve(mips.size());
+        for (uint32_t face = 0; face < ftex.faces; ++face) {
+            for (uint32_t level = first_level; level < ftex.mip_count; ++level) {
+                std::vector<uint8_t> rgba;
+                if (!DecodeFtexSubresource(ftex, face, level, rgba)) {
+                    LogWarn("texture: {} BC fallback decode failed at face {} mip {}", stem, face, level);
+                    if (ok) *ok = false;
+                    return kWhite;
+                }
+                decoded_levels.push_back(std::move(rgba));
+                rgba_mips.push_back({ftex.MipWidth(level), ftex.MipHeight(level), decoded_levels.back()});
+            }
+        }
+        // BC5 contains linear normal-map channels even if the source flag is set.
+        const bool srgb = ftex.Srgb() && ftex.pixel_format != 5;
+        upload_format = srgb ? gpu::Format::R8G8B8A8Srgb : gpu::Format::R8G8B8A8Unorm;
+        mips = std::move(rgba_mips);
+        LogInfo("texture: {} decoded BC{} to RGBA for iOS Metal compatibility", stem, ftex.pixel_format == 8 ? 7 : ftex.pixel_format == 5 ? 5 : ftex.pixel_format == 4 ? 3 : ftex.pixel_format == 3 ? 2 : 1);
+    }
+#endif
     if (compressed) {
         for (TextureMip& mip : mips) {
             mip.width = std::max(mip.width, 1u);
@@ -597,7 +643,7 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
         }
     }
     const auto upload_started = std::chrono::steady_clock::now();
-    const uint32_t index = Create(key, ftex.Format(), mips, ftex.faces, ftex.faces == 6);
+    const uint32_t index = Create(key, upload_format, mips, ftex.faces, ftex.faces == 6);
     upload_ms_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - upload_started).count();
     if (index != kWhite && !raw && EnhancedTextureEligible(stem, ftex)) {
         fox_sources_[index] = stem;
