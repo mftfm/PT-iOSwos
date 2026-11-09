@@ -3,8 +3,7 @@
 #include <SDL3/SDL.h>
 #include "thermal_policy.h"
 
-namespace {
-std::atomic<bool> g_ios_memory_warning{false};
+static std::atomic<bool> g_ios_memory_warning{false};
 
 @interface PTIOSMemoryWarningObserver : NSObject
 @end
@@ -19,7 +18,6 @@ std::atomic<bool> g_ios_memory_warning{false};
     }];
 }
 @end
-} // namespace
 
 extern "C" bool PTIOSConsumeMemoryWarning() {
     return g_ios_memory_warning.exchange(false, std::memory_order_acq_rel);
