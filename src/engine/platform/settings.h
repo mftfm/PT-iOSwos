@@ -18,7 +18,11 @@ struct AppSettings {
         bool vsync = true;
         bool pause_on_focus_loss = true;
         bool mute_in_background = false;
+#ifdef PT_IOS
+        int fps_limit = 60;
+#else
         int fps_limit = 0;
+#endif
         bool hdr = false;
         int hdr_paper_white = 200;
         int hdr_peak = 0;
