@@ -6752,6 +6752,12 @@ int RunGame(App& app, pt::Vfs& vfs) {
                         pt::LogInfo("memory: room again; predictive stage prefetch remains disabled on iOS");
                     } else {
                         app.textures.SetMemoryPressure(true);
+#ifdef PT_IOS
+                        // Stage changes intentionally retain old, unreferenced
+                        // models for reuse. Under iOS pressure, reclaim that cache
+                        // now; active/resident stage references remain protected.
+                        game.ReleaseUnusedAssets("iOS memory pressure");
+#endif
                         app.renderer.Context().LogMemoryReport("memory low");
                     }
                 }
