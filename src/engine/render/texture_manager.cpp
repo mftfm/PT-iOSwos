@@ -76,6 +76,24 @@ bool ModImageLevels(const std::vector<uint8_t>& png, bool srgb, std::vector<std:
     return true;
 }
 
+
+#ifdef PT_IOS
+uint32_t IOSMaxTextureDimension() {
+    const double headroom_mb = QuerySystemMemory().free_physical_mb;
+    uint32_t max_dimension = 2048;
+    if (headroom_mb < 512.0) max_dimension = 64;
+    else if (headroom_mb < 768.0) max_dimension = 128;
+    else if (headroom_mb < 1024.0) max_dimension = 256;
+    else if (headroom_mb < 1536.0) max_dimension = 512;
+    else if (headroom_mb < 2048.0) max_dimension = 1024;
+    static std::atomic<uint32_t> last_logged_cap{0};
+    if (last_logged_cap.exchange(max_dimension) != max_dimension) {
+        LogInfo("textures: iOS app headroom {:.0f} MB; unified base-level cap {} px", headroom_mb, max_dimension);
+    }
+    return max_dimension;
+}
+#endif
+
 }
 
 uint32_t FormatBlockBytes(gpu::Format gpu_format, bool& compressed) {
@@ -379,16 +397,7 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
 #ifdef PT_IOS
     if (!enhanced && mip_count > 1) {
         const double headroom_mb = QuerySystemMemory().free_physical_mb;
-        uint32_t max_dimension = 2048;
-        if (headroom_mb < 512.0) max_dimension = 64;
-        else if (headroom_mb < 768.0) max_dimension = 128;
-        else if (headroom_mb < 1024.0) max_dimension = 256;
-        else if (headroom_mb < 1536.0) max_dimension = 512;
-        else if (headroom_mb < 2048.0) max_dimension = 1024;
-        static std::atomic<uint32_t> last_logged_cap{0};
-        if (last_logged_cap.exchange(max_dimension) != max_dimension) {
-            LogInfo("textures: iOS app headroom {:.0f} MB; limiting new texture base levels to {} px", headroom_mb, max_dimension);
-        }
+        const uint32_t max_dimension = IOSMaxTextureDimension();
         while (mip_count > 1 && std::max(mips[0].width, mips[0].height) > max_dimension) {
             if (!drop_largest_mip()) break;
         }
@@ -583,19 +592,12 @@ uint32_t TextureManager::LoadFox(const QarArchive& qar, const std::string& path,
         ++first_level;
     }
 #ifdef PT_IOS
-    // BC formats are not sampleable on the A14/A15 Metal GPU path through
-    // MoltenVK. Reduce the source mip chain before CPU expansion so the fallback
-    // does not temporarily allocate a full-resolution RGBA copy of every mip.
+    // Use the same runtime headroom policy as TextureManager::Create before
+    // expanding BC data, avoiding a large temporary RGBA allocation.
     bool source_compressed = false;
     FormatBlockBytes(ftex.Format(), source_compressed);
     if (source_compressed) {
-        const double headroom_mb = QuerySystemMemory().free_physical_mb;
-        uint32_t max_dimension = 2048;
-        if (headroom_mb < 512.0) max_dimension = 64;
-        else if (headroom_mb < 768.0) max_dimension = 128;
-        else if (headroom_mb < 1024.0) max_dimension = 256;
-        else if (headroom_mb < 1536.0) max_dimension = 512;
-        else if (headroom_mb < 2048.0) max_dimension = 1024;
+        const uint32_t max_dimension = IOSMaxTextureDimension();
         while (first_level + 1 < ftex.mip_count &&
                std::max(ftex.MipWidth(first_level), ftex.MipHeight(first_level)) > max_dimension) {
             ++first_level;
