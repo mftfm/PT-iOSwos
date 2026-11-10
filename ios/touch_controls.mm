@@ -101,11 +101,12 @@ static __weak PTControls* activeControls;
     self.buttons[3].frame=CGRectMake(w-s.right-60,s.top+16,44,36);
 }
 @end
-void PTAttachTouchControls(SDL_Window* window) {
-    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,"0");
-    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS,"0");
-    if (!touchPad) {
-    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) { SDL_Log("touch: gamepad init failed: %s", SDL_GetError()); return; }
+static bool EnsureTouchGamepad(void) {
+    if (touchPad) return true;
+    if (!(SDL_WasInit(SDL_INIT_GAMEPAD) & SDL_INIT_GAMEPAD) && !SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        SDL_Log("touch: gamepad init failed: %s", SDL_GetError());
+        return false;
+    }
     SDL_VirtualJoystickDesc desc; SDL_INIT_INTERFACE(&desc);
     desc.type=SDL_JOYSTICK_TYPE_GAMEPAD; desc.naxes=SDL_GAMEPAD_AXIS_COUNT; desc.nbuttons=SDL_GAMEPAD_BUTTON_COUNT;
     desc.axis_mask=(1u<<SDL_GAMEPAD_AXIS_COUNT)-1; desc.button_mask=(1u<<SDL_GAMEPAD_BUTTON_COUNT)-1;
@@ -113,12 +114,32 @@ void PTAttachTouchControls(SDL_Window* window) {
     desc.vendor_id=0x045e; desc.product_id=0x028e;
     desc.Cleanup=[](void*) { touchPad=nullptr; };
     SDL_JoystickID id=SDL_AttachVirtualJoystick(&desc);
-    if (!id) { SDL_Log("touch: virtual gamepad failed: %s", SDL_GetError()); return; }
+    if (!id) { SDL_Log("touch: virtual gamepad failed: %s", SDL_GetError()); return false; }
     touchPad=SDL_OpenJoystick(id);
-    if (!touchPad) { SDL_DetachVirtualJoystick(id); SDL_Log("touch: open gamepad failed: %s", SDL_GetError()); return; }
+    if (!touchPad) {
+        SDL_DetachVirtualJoystick(id);
+        SDL_Log("touch: open gamepad failed: %s", SDL_GetError());
+        return false;
+    }
     ResetPad();
     SDL_Log("touch: virtual gamepad attached (%u)", id);
-    }
+    return true;
+}
+
+// Create the virtual controller before gamepad enumeration, without changing
+// UIKit's view hierarchy. SDL replaces its generic view when Vulkan creates
+// the CAMetalLayer-backed surface; attaching UI before that transition is unsafe.
+void PTInitTouchGamepad(void) {
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,"0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS,"0");
+    (void)EnsureTouchGamepad();
+}
+
+void PTAttachTouchControls(SDL_Window* window) {
+    if (!window) return;
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,"0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS,"0");
+    if (!EnsureTouchGamepad()) return;
     UIWindow* uiwindow=(__bridge UIWindow*)SDL_GetPointerProperty(SDL_GetWindowProperties(window),SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER,nullptr);
     UIView* host=uiwindow.rootViewController.view;
     if (!host) return;
