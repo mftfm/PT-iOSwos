@@ -6685,6 +6685,18 @@ int RunGame(App& app, pt::Vfs& vfs) {
             last_render_frame = frame;
             const auto part_t5 = std::chrono::steady_clock::now();
             app.renderer.EndFrame(app.window != nullptr);
+#ifdef PT_IOS
+            // One readback of the exact composited image sent to the swapchain.
+            // This separates a black render target from a UIKit/presentation failure.
+            static bool ios_render_capture_attempted = false;
+            if (!ios_render_capture_attempted && frame >= 30) {
+                ios_render_capture_attempted = true;
+                const std::filesystem::path capture = UserDataDir() / "ios-render-check.png";
+                const bool saved = app.renderer.SaveScreenshot(capture);
+                pt::LogInfo("ios diagnostic: presented-image readback {} at {}",
+                            saved ? "saved" : "failed", pt::os::PathToUtf8(capture));
+            }
+#endif
             if (!first_frame_shown) {
                 first_frame_shown = true;
                 pt::boot::Phase("first frame", ui_ready && ui.ShaderScreenShown()     ? "the shader preparation screen"
