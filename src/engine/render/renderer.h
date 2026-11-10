@@ -91,6 +91,7 @@ public:
     void RecheckOutput();
     void ImGuiNewFrame();
     bool SaveScreenshot(const std::filesystem::path& path, glm::vec4 crop = {0.0f, 0.0f, 1.0f, 1.0f});
+    void LogRenderHealth(const char* reason);
 
     vk::Context& Context() { return ctx_; }
     gpu::Device& Gpu() { return *gpu_; }
