@@ -1,5 +1,6 @@
 // Exercise the production overlay against SDL's real UIKit -> Metal root replacement.
 #import <UIKit/UIKit.h>
+#import <QuartzCore/CAMetalLayer.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_metal.h>
@@ -25,7 +26,8 @@ int main(int argc,char**argv) {
     int restored_w=0,restored_h=0;SDL_GetWindowSizeInPixels(window,&restored_w,&restored_h);
     Check(native_w==restored_w && native_h==restored_h,"restore fullscreen drawable after desktop resize");
     PTInitTouchGamepad();
-    Check(Overlay(native.rootViewController.view)==nil,"early gamepad setup must not add UIKit views");
+    PTAttachTouchControls(window);
+    Check(Overlay(native.rootViewController.view)==nil,"touch overlay must wait for SDL's Metal-backed root view");
     int pre_surface_count=0;
     SDL_JoystickID* pre_surface_ids=SDL_GetGamepads(&pre_surface_count);
     Check(pre_surface_count==1,"virtual gamepad exists before Metal surface creation");
@@ -35,9 +37,11 @@ int main(int argc,char**argv) {
     Check(metal!=nullptr,"Metal surface");
     Check(native.rootViewController.view!=before,"test must replace root just like Vulkan");
     Check(Overlay(native.rootViewController.view)==nil,"overlay must remain absent during SDL root replacement");
+    Check([native.rootViewController.view.layer isKindOfClass:CAMetalLayer.class],"new root must be Metal-backed");
     PTAttachTouchControls(window);
     UIView* overlay=Overlay(native.rootViewController.view);
     Check(overlay!=nil,"overlay restored above Metal");
+    Check(!overlay.isOpaque,"touch overlay must preserve transparency over Metal");
     int count=0;SDL_JoystickID* ids=SDL_GetGamepads(&count);Check(count==1,"one virtual gamepad after reattachment");
     SDL_Gamepad* pad=SDL_OpenGamepad(ids[0]);SDL_free(ids);Check(pad!=nullptr,"virtual gamepad recognized");
     Check(SDL_GetGamepadVendor(pad)==0x045e && SDL_GetGamepadProduct(pad)==0x028e,"Xbox virtual pad identity");
