@@ -1267,10 +1267,10 @@ void Renderer::LogRenderHealth(const char* reason) {
         gpu::ImageResource* image;
         gpu::Layout layout;
     };
+    // scene_color_ and output_ are explicitly created with TRANSFER_SRC usage.
+    // final_ and hdr_boost_ are not, so do not read them back through this path.
     const TargetEntry targets[] = {
         {"scene_color", &scene_color_, gpu::Layout::ShaderReadOnly},
-        {"final_composite", &final_.image, gpu::Layout::ShaderReadOnly},
-        {"hdr_boost", &hdr_boost_, gpu::Layout::ShaderReadOnly},
         {"swapchain_readback", &output_.image, gpu::Layout::TransferSrc}
     };
     for (const TargetEntry& entry : targets) {
