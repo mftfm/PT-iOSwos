@@ -14,7 +14,7 @@ set_target_properties(pt PROPERTIES MACOSX_BUNDLE TRUE OUTPUT_NAME "PT"
   XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO" XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")
 target_sources(pt PRIVATE ios/display.cpp ios/mobile_main.mm ios/touch_controls.mm ios/import_controller.mm ios/performance.mm)
 set_source_files_properties(ios/mobile_main.mm ios/touch_controls.mm ios/import_controller.mm ios/performance.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-target_link_libraries(pt PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers" "-framework Foundation")
+target_link_libraries(pt PRIVATE "-framework UIKit" "-framework QuartzCore" "-framework UniformTypeIdentifiers" "-framework Foundation")
 target_link_libraries(pt_engine PUBLIC whisper)
 add_custom_command(TARGET pt POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory "${PT_IOS_MVK_FRAMEWORK}" "$<TARGET_FILE_DIR:pt>/Frameworks/MoltenVK.framework"
