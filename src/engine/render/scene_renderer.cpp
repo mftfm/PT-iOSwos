@@ -1520,6 +1520,66 @@ uint32_t DumpTexelBytes(gpu::Format format) {
     return bytes ? bytes : 4;
 }
 
+
+}
+
+void SceneRenderer::LogRenderHealth(const char* reason) {
+#ifdef PT_IOS
+    if (!gpu_) return;
+    gpu_->WaitIdle();
+    struct TargetEntry {
+        const char* name;
+        RenderTarget* target;
+    };
+    const TargetEntry targets[] = {
+        {"albedo", &albedo_}, {"normal", &normal_}, {"material", &material_}, {"depth", &depth_},
+        {"diffuse", &diffuse_}, {"specular", &specular_}, {"hdr", &hdr_}, {"ldr_a", &ldr_[0]},
+        {"ldr_b", &ldr_[1]}, {"flare", &flare_}, {"scene_color", nullptr}
+    };
+    LogInfo("ios render health [{}]: {} draws, {} lights, {} probes, {}x{} render, exposure {:.6f}",
+            reason ? reason : "unknown", stats_.draws, stats_.lights, stats_.probes, output_extent_.width, output_extent_.height, exposure_);
+    for (const TargetEntry& entry : targets) {
+        if (!entry.target) continue;
+        RenderTarget& target = *entry.target;
+        if (!target.Valid()) {
+            LogInfo("ios render health [{}]: {} is not allocated", reason ? reason : "unknown", entry.name);
+            continue;
+        }
+        const gpu::FormatInfo format = gpu::Describe(target.image.format);
+        if (format.bytes == 0 || format.block) {
+            LogInfo("ios render health [{}]: {} format {} cannot be sampled by the diagnostic reader",
+                    reason ? reason : "unknown", entry.name, static_cast<uint32_t>(target.image.format));
+            continue;
+        }
+        std::vector<uint8_t> pixels;
+        if (!gpu_->ReadImage(target, pixels) || pixels.empty()) {
+            LogWarn("ios render health [{}]: {} readback failed", reason ? reason : "unknown", entry.name);
+            continue;
+        }
+        const uint64_t pixel_count = uint64_t(target.image.extent.width) * target.image.extent.height;
+        uint64_t nonzero_pixels = 0;
+        uint64_t nonzero_bytes = 0;
+        uint8_t max_byte = 0;
+        uint64_t sum_bytes = 0;
+        for (uint64_t pixel = 0; pixel < pixel_count; ++pixel) {
+            bool nonzero = false;
+            const size_t at = static_cast<size_t>(pixel * format.bytes);
+            for (uint32_t component = 0; component < format.bytes; ++component) {
+                const uint8_t value = pixels[at + component];
+                nonzero |= value != 0;
+                nonzero_bytes += value != 0 ? 1u : 0u;
+                max_byte = std::max(max_byte, value);
+                sum_bytes += value;
+            }
+            nonzero_pixels += nonzero ? 1u : 0u;
+        }
+        const double percent = pixel_count ? 100.0 * static_cast<double>(nonzero_pixels) / static_cast<double>(pixel_count) : 0.0;
+        const double mean = pixels.empty() ? 0.0 : static_cast<double>(sum_bytes) / static_cast<double>(pixels.size());
+        LogInfo("ios render health [{}]: {} {}x{} fmt {} bpp {} nonzero pixels {}/{} ({:.2f}%), nonzero bytes {}, max byte {}, mean byte {:.3f}",
+                reason ? reason : "unknown", entry.name, target.image.extent.width, target.image.extent.height,
+                static_cast<uint32_t>(target.image.format), format.bytes, nonzero_pixels, pixel_count, percent, nonzero_bytes, max_byte, mean);
+    }
+#endif
 }
 
 void SceneRenderer::RecordDumpCopy(gpu::CommandList& cmd, RenderTarget& target, gpu::BufferResource& buffer) {
