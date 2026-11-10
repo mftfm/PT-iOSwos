@@ -130,11 +130,12 @@ bool TextureManager::Init(gpu::Device& device) {
     // textures[] at binding 0, cube_textures[] at binding 2, and tex_sampler at binding 3.
     // Keep D3D12's combined-image descriptors; the DXIL translator consumes that layout.
     const gpu::BindingType texture_type = d3d12 ? gpu::BindingType::CombinedImageSampler : gpu::BindingType::SampledImage;
+    const gpu::BindingFlags sampler_flags = d3d12 ? gpu::BindingFlag::UpdateAfterBind : gpu::BindingFlags{};
     layout.bindings = {{0, texture_type, kMaxTextures, gpu::ShaderStage::Fragment | gpu::ShaderStage::Compute, bindless},
                        {1, gpu::BindingType::StorageBuffer, 1, gpu::ShaderStage::Fragment | gpu::ShaderStage::Vertex | gpu::ShaderStage::Compute,
                         gpu::BindingFlag::UpdateAfterBind},
                        {2, texture_type, kMaxCubeTextures, gpu::ShaderStage::Fragment, bindless},
-                       {3, gpu::BindingType::Sampler, 1, gpu::ShaderStage::All, gpu::BindingFlag::UpdateAfterBind}};
+                       {3, gpu::BindingType::Sampler, 1, gpu::ShaderStage::All, sampler_flags}};
     set_layout_ = device.CreateBindingLayout(layout);
     if (!set_layout_) {
         LogError("textures: texture set layout failed");
