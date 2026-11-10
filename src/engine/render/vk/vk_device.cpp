@@ -612,6 +612,13 @@ bool Device::ReadImage(RenderTarget& image, std::vector<uint8_t>& out) {
             list.UseTargets({{&image, back}});
         }
     });
+    if (!buffer.mapped) {
+        DestroyBuffer(buffer);
+        return false;
+    }
+    // Readback allocations may be host-cached but not host-coherent. Invalidate
+    // before the CPU reads the GPU-written bytes.
+    InvalidateMapped(buffer, 0, ~0ull);
     out.assign(static_cast<const uint8_t*>(buffer.mapped), static_cast<const uint8_t*>(buffer.mapped) + bd.size);
     DestroyBuffer(buffer);
     return true;
