@@ -12,8 +12,8 @@ set_target_properties(pt PROPERTIES MACOSX_BUNDLE TRUE OUTPUT_NAME "PT"
   MACOSX_BUNDLE_GUI_IDENTIFIER "dev.local.pt.ios" MACOSX_BUNDLE_BUNDLE_NAME "P.T."
   MACOSX_BUNDLE_BUNDLE_VERSION "7" MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.6"
   XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO" XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")
-target_sources(pt PRIVATE ios/display.cpp ios/mobile_main.mm ios/touch_controls.mm ios/import_controller.mm ios/performance.mm)
-set_source_files_properties(ios/mobile_main.mm ios/touch_controls.mm ios/import_controller.mm ios/performance.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+target_sources(pt PRIVATE ios/display.cpp ios/mobile_main.mm ios/document_folder.mm ios/touch_controls.mm ios/import_controller.mm ios/performance.mm)
+set_source_files_properties(ios/mobile_main.mm ios/document_folder.mm ios/touch_controls.mm ios/import_controller.mm ios/performance.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 target_link_libraries(pt PRIVATE "-framework UIKit" "-framework QuartzCore" "-framework UniformTypeIdentifiers" "-framework Foundation")
 target_link_libraries(pt_engine PUBLIC whisper)
 add_custom_command(TARGET pt POST_BUILD
