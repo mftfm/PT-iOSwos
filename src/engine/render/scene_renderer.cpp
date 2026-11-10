@@ -1557,12 +1557,35 @@ void SceneRenderer::LogRenderHealth(const char* reason) {
             continue;
         }
         const uint64_t pixel_count = uint64_t(target.image.extent.width) * target.image.extent.height;
+        uint32_t color_bytes = format.bytes;
+        switch (target.image.format) {
+        case gpu::Format::R8G8B8A8Unorm:
+        case gpu::Format::R8G8B8A8Srgb:
+        case gpu::Format::B8G8R8A8Unorm:
+        case gpu::Format::B8G8R8A8Srgb:
+            color_bytes = 3; // Ignore opaque alpha when deciding whether the image has visible RGB.
+            break;
+        case gpu::Format::R16G16B16A16Sfloat:
+            color_bytes = 6;
+            break;
+        case gpu::Format::R32G32B32A32Sfloat:
+            color_bytes = 12;
+            break;
+        default:
+            break;
+        }
+        if (format.depth) color_bytes = format.bytes;
         uint64_t nonzero_pixels = 0;
+        uint64_t nonzero_color_pixels = 0;
         uint64_t nonzero_bytes = 0;
+        uint64_t nonzero_color_bytes = 0;
         uint8_t max_byte = 0;
+        uint8_t max_color_byte = 0;
         uint64_t sum_bytes = 0;
+        uint64_t sum_color_bytes = 0;
         for (uint64_t pixel = 0; pixel < pixel_count; ++pixel) {
             bool nonzero = false;
+            bool color_nonzero = false;
             const size_t at = static_cast<size_t>(pixel * format.bytes);
             for (uint32_t component = 0; component < format.bytes; ++component) {
                 const uint8_t value = pixels[at + component];
@@ -1570,14 +1593,23 @@ void SceneRenderer::LogRenderHealth(const char* reason) {
                 nonzero_bytes += value != 0 ? 1u : 0u;
                 max_byte = std::max(max_byte, value);
                 sum_bytes += value;
+                if (component < color_bytes) {
+                    color_nonzero |= value != 0;
+                    nonzero_color_bytes += value != 0 ? 1u : 0u;
+                    max_color_byte = std::max(max_color_byte, value);
+                    sum_color_bytes += value;
+                }
             }
             nonzero_pixels += nonzero ? 1u : 0u;
+            nonzero_color_pixels += color_nonzero ? 1u : 0u;
         }
-        const double percent = pixel_count ? 100.0 * static_cast<double>(nonzero_pixels) / static_cast<double>(pixel_count) : 0.0;
-        const double mean = pixels.empty() ? 0.0 : static_cast<double>(sum_bytes) / static_cast<double>(pixels.size());
-        LogInfo("ios render health [{}]: {} {}x{} fmt {} bpp {} nonzero pixels {}/{} ({:.2f}%), nonzero bytes {}, max byte {}, mean byte {:.3f}",
+        const double percent = pixel_count ? 100.0 * static_cast<double>(nonzero_color_pixels) / static_cast<double>(pixel_count) : 0.0;
+        const double mean = pixel_count && color_bytes ? static_cast<double>(sum_color_bytes) /
+            static_cast<double>(pixel_count * color_bytes) : 0.0;
+        LogInfo("ios render health [{}]: {} {}x{} fmt {} bpp {}, RGB pixels {}/{} ({:.2f}%), RGB bytes {}, max {}, mean {:.3f}; all-channel pixels {}, bytes {}, max {}",
                 reason ? reason : "unknown", entry.name, target.image.extent.width, target.image.extent.height,
-                static_cast<uint32_t>(target.image.format), format.bytes, nonzero_pixels, pixel_count, percent, nonzero_bytes, max_byte, mean);
+                static_cast<uint32_t>(target.image.format), format.bytes, nonzero_color_pixels, pixel_count, percent,
+                nonzero_color_bytes, max_color_byte, mean, nonzero_pixels, nonzero_bytes, max_byte);
     }
 #endif
 }
