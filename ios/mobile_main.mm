@@ -7,13 +7,19 @@
 
 int PTGameMain(int argc, char** argv);
 #import "import_controller.h"
+#import "document_folder.h"
 
 int main(int argc, char** argv) {
     @autoreleasepool {
         SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,"0");
         SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS,"0");
         NSURL* documents = [NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
-        NSURL* game = [documents URLByAppendingPathComponent:@"Game" isDirectory:YES];
+        NSError* folderError = nil;
+        NSURL* game = PTPrepareGameFolder(documents, &folderError);
+        if (!game) {
+            NSLog(@"[PT] Cannot prepare the Files app game folder: %@", folderError.localizedDescription);
+            return 1;
+        }
         NSURL* bundledGame = [NSBundle.mainBundle.bundleURL URLByAppendingPathComponent:@"Game" isDirectory:YES];
         if (!PTIOSHasGame(game) && PTIOSHasGame(bundledGame)) game = bundledGame;
         if (!PTIOSHasGame(game)) {
