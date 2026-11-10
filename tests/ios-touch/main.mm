@@ -23,6 +23,11 @@ static void TestDocumentsGameFolder(void) {
     Check(game!=nil && error==nil,"create Documents/Game");
     BOOL isDirectory=NO;
     Check([fm fileExistsAtPath:game.path isDirectory:&isDirectory] && isDirectory,"Game is a directory");
+    NSURL* profile=[documents URLByAppendingPathComponent:@"P.T." isDirectory:YES];
+    isDirectory=NO;
+    Check([fm fileExistsAtPath:profile.path isDirectory:&isDirectory] && isDirectory,"P.T. profile folder is a directory");
+    NSURL* profileReadme=[profile URLByAppendingPathComponent:@"README.txt"];
+    Check([fm fileExistsAtPath:profileReadme.path],"create P.T. profile instructions");
     NSURL* readme=[game URLByAppendingPathComponent:@"README.txt"];
     NSString* instructions=[NSString stringWithContentsOfURL:readme encoding:NSUTF8StringEncoding error:&error];
     Check(instructions!=nil,"create Game/README.txt");

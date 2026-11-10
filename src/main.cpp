@@ -6687,19 +6687,28 @@ int RunGame(App& app, pt::Vfs& vfs) {
             const auto part_t5 = std::chrono::steady_clock::now();
             app.renderer.EndFrame(app.window != nullptr);
 #ifdef PT_IOS
-            // One readback of the exact composited image sent to the swapchain.
-            // This separates a black render target from a UIKit/presentation failure.
+            // Frame 30 is still the loading scene on this device. Probe only after
+            // the demo releases control and gameplay has been stable for four seconds.
             static bool ios_render_capture_attempted = false;
-            if (!ios_render_capture_attempted && frame >= 30) {
+            static std::chrono::steady_clock::time_point ios_interactive_since{};
+            const bool ios_live_gameplay = !theater && !date_scene && !game.Paused() &&
+                !game.Demos().ControlsPlayer() && ui_ready && !ui.MenuOpen() &&
+                !ui.BootSplashShown() && !ui.ShaderScreenShown() && !ui.TexturesScreenShown();
+            const auto ios_diagnostic_now = std::chrono::steady_clock::now();
+            if (!ios_live_gameplay) {
+                ios_interactive_since = {};
+            } else if (ios_interactive_since.time_since_epoch().count() == 0) {
+                ios_interactive_since = ios_diagnostic_now;
+                pt::LogInfo("ios diagnostic: player control detected; waiting 4 seconds before GPU target readback");
+            } else if (!ios_render_capture_attempted &&
+                       ios_diagnostic_now - ios_interactive_since >= std::chrono::seconds(4)) {
                 ios_render_capture_attempted = true;
-                // Read back the internal GPU stages before only looking at the final
-                // screenshot. The first all-zero target identifies the broken pass.
-                app.scene.LogRenderHealth("frame-30");
-                app.renderer.LogRenderHealth("frame-30");
+                app.scene.LogRenderHealth("interactive-gameplay");
+                app.renderer.LogRenderHealth("interactive-gameplay");
                 const std::filesystem::path capture = UserDataDir() / "ios-render-check.png";
                 const bool saved = app.renderer.SaveScreenshot(capture);
-                pt::LogInfo("ios diagnostic: presented-image readback {} at {}",
-                            saved ? "saved" : "failed", pt::os::PathToUtf8(capture));
+                pt::LogInfo("ios diagnostic: interactive presented-image readback {} at {} (render frame {})",
+                            saved ? "saved" : "failed", pt::os::PathToUtf8(capture), frame);
             }
 #endif
             if (!first_frame_shown) {

@@ -50,6 +50,15 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja \
   -DPT_UPSCALERS=OFF -DPT_OPENXR=OFF -DPT_METALFX=ON \
   "${FETCH_ARGS[@]}"
 cmake --build "$BUILD" --target pt -j 4
+INFO_PLIST="$BUILD/PT.app/Info.plist"
+for KEY in UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace; do
+  VALUE="$(/usr/libexec/PlistBuddy -c "Print :$KEY" "$INFO_PLIST" 2>/dev/null || true)"
+  if [ "$VALUE" != "true" ]; then
+    echo "iOS Files app integration is broken: $KEY must be true in $INFO_PLIST (got '$VALUE')" >&2
+    exit 1
+  fi
+done
+echo "Verified Files app sharing: UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace"
 python3 "$ROOT/script/audit_nojit.py" "$BUILD/PT.app" > "$ROOT/build/ios-validation.json"
 if [ -n "$GAME_DIR" ]; then
   OUTPUT="$ROOT/dist/PT-iOS-with-game-unsigned.ipa"

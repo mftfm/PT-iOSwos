@@ -48,46 +48,99 @@ BOOL PTIOSHasGame(NSURL* dir) {
     [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
-    NSURL* source = urls.firstObject; if (!source) return;
-    self.importButton.enabled = NO; self.progress.hidden = NO; self.progress.progress = 0;
+    NSURL* source = urls.firstObject;
+    if (!source) return;
+    self.importButton.enabled = NO;
+    self.progress.hidden = NO;
+    self.progress.progress = 0;
     self.detail.text = @"Checking game files…";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
-        BOOL scoped = [source startAccessingSecurityScopedResource];
-        NSURL* root = source;
-        if (!PTIOSHasGame(root)) {
-            NSURL* nested = [source URLByAppendingPathComponent:@"CUSA01127" isDirectory:YES];
-            if (PTIOSHasGame(nested)) root = nested;
+        __block BOOL valid = NO;
+        __block NSError* importError = nil;
+        const BOOL scoped = [source startAccessingSecurityScopedResource];
+        if (!scoped) {
+            importError = [NSError errorWithDomain:@"PTGameImport" code:1
+                userInfo:@{NSLocalizedDescriptionKey:
+                    @"Files did not grant access to the selected folder. Select it again in the Files picker."}];
+        } else {
+            NSFileCoordinator* coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+            NSError* coordinationError = nil;
+            [coordinator coordinateReadingItemAtURL:source
+                options:NSFileCoordinatorReadingWithoutChanges
+                error:&coordinationError
+                byAccessor:^(NSURL* coordinatedSource) {
+                    NSURL* root = coordinatedSource;
+                    if (!PTIOSHasGame(root)) {
+                        NSURL* nested = [coordinatedSource URLByAppendingPathComponent:@"CUSA01127" isDirectory:YES];
+                        if (PTIOSHasGame(nested)) root = nested;
+                    }
+                    if (!PTIOSHasGame(root)) {
+                        importError = [NSError errorWithDomain:@"PTGameImport" code:2
+                            userInfo:@{NSLocalizedDescriptionKey:
+                                @"The selected folder must contain chunk1.psarc, texture.qar and pathid_list_ps4.bin."}];
+                        return;
+                    }
+                    if (!self.destination) {
+                        importError = [NSError errorWithDomain:@"PTGameImport" code:3
+                            userInfo:@{NSLocalizedDescriptionKey:@"The app's Documents/Game folder is unavailable."}];
+                        return;
+                    }
+                    NSFileManager* fm = NSFileManager.defaultManager;
+                    NSURL* parent = self.destination.URLByDeletingLastPathComponent;
+                    NSURL* stage = [parent URLByAppendingPathComponent:@"Game.importing" isDirectory:YES];
+                    [fm removeItemAtURL:stage error:nil];
+                    NSError* copyError = nil;
+                    valid = [fm createDirectoryAtURL:stage withIntermediateDirectories:YES attributes:nil error:&copyError];
+                    NSUInteger count = 0;
+                    for (NSString* name in RequiredFiles()) {
+                        if (!valid) break;
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            self.detail.text = [@"Copying " stringByAppendingString:name];
+                        });
+                        NSURL* from = [root URLByAppendingPathComponent:name];
+                        NSURL* to = [stage URLByAppendingPathComponent:name];
+                        valid = [fm copyItemAtURL:from toURL:to error:&copyError];
+                        if (valid) {
+                            ++count;
+                            const float progress = static_cast<float>(count) / 3.0f;
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [self.progress setProgress:progress animated:YES];
+                            });
+                        }
+                    }
+                    if (valid) valid = PTIOSHasGame(stage);
+                    if (valid) {
+                        if ([fm fileExistsAtPath:self.destination.path]) {
+                            valid = [fm replaceItemAtURL:self.destination withItemAtURL:stage
+                                backupItemName:nil options:0 resultingItemURL:nil error:&copyError];
+                        } else {
+                            valid = [fm moveItemAtURL:stage toURL:self.destination error:&copyError];
+                        }
+                    }
+                    if (!valid) {
+                        [fm removeItemAtURL:stage error:nil];
+                        importError = copyError ?: [NSError errorWithDomain:@"PTGameImport" code:4
+                            userInfo:@{NSLocalizedDescriptionKey:@"The game files could not be copied into Documents/Game."}];
+                    }
+                }];
+            [source stopAccessingSecurityScopedResource];
+            if (coordinationError && !importError) importError = coordinationError;
         }
-        NSError* error = nil;
-        BOOL valid = PTIOSHasGame(root);
-        NSFileManager* fm = NSFileManager.defaultManager;
-        NSURL* stage = [self.destination.URLByDeletingLastPathComponent URLByAppendingPathComponent:@"Game.importing"];
-        if (valid) {
-            [fm removeItemAtURL:stage error:nil];
-            valid = [fm createDirectoryAtURL:stage withIntermediateDirectories:YES attributes:nil error:&error];
-            NSUInteger count = 0;
-            for (NSString* name in RequiredFiles()) {
-                if (!valid) break;
-                dispatch_async(dispatch_get_main_queue(), ^{ self.detail.text = [@"Copying " stringByAppendingString:name]; });
-                valid = [fm copyItemAtURL:[root URLByAppendingPathComponent:name] toURL:[stage URLByAppendingPathComponent:name] error:&error];
-                float progress = ++count / 3.0f;
-                dispatch_async(dispatch_get_main_queue(), ^{ [self.progress setProgress:progress animated:YES]; });
-            }
-            if (valid) {
-                if ([fm fileExistsAtPath:self.destination.path])
-                    valid = [fm replaceItemAtURL:self.destination withItemAtURL:stage backupItemName:nil options:0 resultingItemURL:nil error:&error];
-                else valid = [fm moveItemAtURL:stage toURL:self.destination error:&error];
-            }
-            if (!valid) [fm removeItemAtURL:stage error:nil];
-        }
-        if (scoped) [source stopAccessingSecurityScopedResource];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.ready = valid;
             if (!valid) {
-                self.detail.text = error ? error.localizedDescription : @"The selected folder must contain all three non-empty game files.\nSelect CUSA01127 or the folder containing the archives.";
-                self.importButton.enabled = YES; self.progress.hidden = YES;
+                self.detail.text = importError ? importError.localizedDescription :
+                    @"The selected folder must contain all three non-empty game files.\nSelect CUSA01127 or the folder containing the archives.";
+                self.importButton.enabled = YES;
+                self.progress.hidden = YES;
             }
         });
     });
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController*)controller {
+    self.detail.text = @"No folder selected. Choose Import game files to try again.";
+    self.importButton.enabled = YES;
+    self.progress.hidden = YES;
 }
 @end
