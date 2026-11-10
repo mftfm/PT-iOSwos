@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include <SDL3/SDL.h>
+#import "../../ios/document_folder.h"
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_metal.h>
 void PTInitTouchGamepad(void);
@@ -12,8 +13,34 @@ static UIView* Overlay(UIView* view) {
     return nil;
 }
 static void Check(bool value,const char* message) { if(!value){SDL_Log("TOUCH_REGRESSION_FAIL: %s",message);abort();} }
+static void TestDocumentsGameFolder(void) {
+    NSFileManager* fm=NSFileManager.defaultManager;
+    NSString* leaf=[@"PT-Documents-Test-" stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSURL* documents=[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:leaf] isDirectory:YES];
+    NSError* error=nil;
+    Check([fm createDirectoryAtURL:documents withIntermediateDirectories:YES attributes:nil error:&error],"temporary Documents directory");
+    NSURL* game=PTPrepareGameFolder(documents,&error);
+    Check(game!=nil && error==nil,"create Documents/Game");
+    BOOL isDirectory=NO;
+    Check([fm fileExistsAtPath:game.path isDirectory:&isDirectory] && isDirectory,"Game is a directory");
+    NSURL* readme=[game URLByAppendingPathComponent:@"README.txt"];
+    NSString* instructions=[NSString stringWithContentsOfURL:readme encoding:NSUTF8StringEncoding error:&error];
+    Check(instructions!=nil,"create Game/README.txt");
+    Check([instructions containsString:@"chunk1.psarc"] &&
+          [instructions containsString:@"texture.qar"] &&
+          [instructions containsString:@"pathid_list_ps4.bin"],"README lists all required archives");
+    NSString* userText=@"user-edited instructions";
+    Check([userText writeToURL:readme atomically:YES encoding:NSUTF8StringEncoding error:&error],"edit README");
+    NSURL* again=PTPrepareGameFolder(documents,&error);
+    NSString* preserved=[NSString stringWithContentsOfURL:[again URLByAppendingPathComponent:@"README.txt"]
+                                                  encoding:NSUTF8StringEncoding error:&error];
+    Check([preserved isEqualToString:userText],"do not overwrite existing README");
+    [fm removeItemAtURL:documents error:nil];
+    SDL_Log("DOCUMENTS_FOLDER_PASS: first-launch Game folder, README instructions, preserves user edits");
+}
 int main(int argc,char**argv) {
  @autoreleasepool {
+    TestDocumentsGameFolder();
     Check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD),"SDL_Init");
     SDL_Window* window=SDL_CreateWindow("Touch layer regression",1000,500,SDL_WINDOW_FULLSCREEN|SDL_WINDOW_METAL);
     Check(window!=nullptr,"window");
