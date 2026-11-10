@@ -991,7 +991,14 @@ void Renderer::EndFrame(bool draw_ui) {
         list.Barrier(ColorBarrier(target_image, PipelineStage::ColorAttachmentOutput, gpu::Bits(Access::ColorAttachmentWrite),
                                   Layout::ColorAttachment, PipelineStage::Transfer, gpu::Bits(Access::TransferRead), Layout::TransferSrc));
     }
-    vkEndCommandBuffer(cmd);
+    const VkResult end_command_result = vkEndCommandBuffer(cmd);
+#ifdef PT_IOS
+    static uint32_t ios_end_command_logs = 0;
+    if (end_command_result != VK_SUCCESS || ios_end_command_logs < 4) {
+        ++ios_end_command_logs;
+        LogInfo("ios: vkEndCommandBuffer result {} ({})", static_cast<int>(end_command_result), vk::ResultName(end_command_result));
+    }
+#endif
     VkCommandBufferSubmitInfo cmd_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
     cmd_info.commandBuffer = cmd;
     VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
@@ -1038,7 +1045,15 @@ void Renderer::EndFrame(bool draw_ui) {
     active_list_ = gpu::vk::CommandList(active_cmd_);
     const auto submit_started = std::chrono::steady_clock::now();
     cpu_waits_.end_record_ms = wait_ms(submit_started - end_started).count();
-    ctx_.CheckDeviceLost(vkQueueSubmit2(ctx_.queue, 1, &submit, frame.in_flight), "frame submit");
+    const VkResult submit_result = vkQueueSubmit2(ctx_.queue, 1, &submit, frame.in_flight);
+    ctx_.CheckDeviceLost(submit_result, "frame submit");
+#ifdef PT_IOS
+    static uint32_t ios_submit_logs = 0;
+    if (submit_result != VK_SUCCESS || ios_submit_logs < 4) {
+        ++ios_submit_logs;
+        LogInfo("ios: vkQueueSubmit2 result {} ({})", static_cast<int>(submit_result), vk::ResultName(submit_result));
+    }
+#endif
     if (presenting_ && gen_acquired_) {
         const vk::Image* generated = fg_sync && !xr ? generated_frame.generate() : nullptr;
         PresentGeneratedFrame(frame, generated, generated ? fg_wait : VK_NULL_HANDLE, fg_wait_value, draw_ui);
@@ -1057,6 +1072,16 @@ void Renderer::EndFrame(bool draw_ui) {
         const VkResult result = ctx_.QueuePresent(present);
         streamline::SetMarker(streamline::Marker::PresentEnd);
         ctx_.CheckDeviceLost(result, "present");
+#ifdef PT_IOS
+        static uint32_t ios_present_logs = 0;
+        if (result != VK_SUCCESS || ios_present_logs < 12) {
+            ++ios_present_logs;
+            LogInfo("ios: vkQueuePresentKHR result {} ({}), image {}/{}, swapchain {}x{}, scene {}x{}, output capture {}",
+                    static_cast<int>(result), vk::ResultName(result), image_index_, ctx_.swapchain.images.size(),
+                    ctx_.swapchain.extent.width, ctx_.swapchain.extent.height, extent.width, extent.height,
+                    output_.image ? "available" : "unavailable");
+        }
+#endif
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             swapchain_dirty_ = true;
         }
