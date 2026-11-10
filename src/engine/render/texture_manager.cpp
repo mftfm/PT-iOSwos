@@ -126,23 +126,24 @@ bool TextureManager::Init(gpu::Device& device) {
     const gpu::BindingFlags bindless = gpu::BindingFlag::PartiallyBound | gpu::BindingFlag::UpdateAfterBind | gpu::BindingFlag::UpdateUnusedWhilePending;
     gpu::BindingLayoutDesc layout;
     layout.update_after_bind = true;
-    layout.bindings = {{0, gpu::BindingType::CombinedImageSampler, kMaxTextures, gpu::ShaderStage::Fragment | gpu::ShaderStage::Compute, bindless},
+    // Vulkan GLSL declares separate texture and sampler descriptors in bindless.glsl:
+    // textures[] at binding 0, cube_textures[] at binding 2, and tex_sampler at binding 3.
+    // Keep D3D12's combined-image descriptors; the DXIL translator consumes that layout.
+    const gpu::BindingType texture_type = d3d12 ? gpu::BindingType::CombinedImageSampler : gpu::BindingType::SampledImage;
+    layout.bindings = {{0, texture_type, kMaxTextures, gpu::ShaderStage::Fragment | gpu::ShaderStage::Compute, bindless},
                        {1, gpu::BindingType::StorageBuffer, 1, gpu::ShaderStage::Fragment | gpu::ShaderStage::Vertex | gpu::ShaderStage::Compute,
                         gpu::BindingFlag::UpdateAfterBind},
-                       {2, gpu::BindingType::CombinedImageSampler, kMaxCubeTextures, gpu::ShaderStage::Fragment, bindless}};
-    if (d3d12) {
-        layout.bindings.push_back({3, gpu::BindingType::Sampler, 1, gpu::ShaderStage::All, gpu::BindingFlag::UpdateAfterBind});
-    }
+                       {2, texture_type, kMaxCubeTextures, gpu::ShaderStage::Fragment, bindless},
+                       {3, gpu::BindingType::Sampler, 1, gpu::ShaderStage::All, gpu::BindingFlag::UpdateAfterBind}};
     set_layout_ = device.CreateBindingLayout(layout);
     if (!set_layout_) {
         LogError("textures: texture set layout failed");
         return false;
     }
     gpu::BindingPoolDesc pool;
-    pool.sizes = {{gpu::BindingType::CombinedImageSampler, kMaxTextures + kMaxCubeTextures}, {gpu::BindingType::StorageBuffer, 1}};
-    if (d3d12) {
-        pool.sizes.push_back({gpu::BindingType::Sampler, 1});
-    }
+    pool.sizes = {{texture_type, kMaxTextures + kMaxCubeTextures},
+                  {gpu::BindingType::StorageBuffer, 1},
+                  {gpu::BindingType::Sampler, 1}};
     pool.max_sets = 1;
     pool.update_after_bind = true;
     pool_ = device.CreateBindingPool(pool);
@@ -165,14 +166,12 @@ bool TextureManager::Init(gpu::Device& device) {
     write.type = gpu::BindingType::StorageBuffer;
     write.buffers = std::span(&buffer_binding, 1);
     device.WriteBindings(std::span(&write, 1));
-    if (d3d12) {
-        gpu::BindingWrite sampler;
-        sampler.set = set_;
-        sampler.binding = 3;
-        sampler.type = gpu::BindingType::Sampler;
-        sampler.samplers = std::span(&sampler_, 1);
-        device.WriteBindings(std::span(&sampler, 1));
-    }
+    gpu::BindingWrite texture_sampler;
+    texture_sampler.set = set_;
+    texture_sampler.binding = 3;
+    texture_sampler.type = gpu::BindingType::Sampler;
+    texture_sampler.samplers = std::span(&sampler_, 1);
+    device.WriteBindings(std::span(&texture_sampler, 1));
 
     const uint8_t white[4] = {255, 255, 255, 255};
     const uint8_t flat[4] = {128, 128, 255, 255};
@@ -277,18 +276,17 @@ int TextureManager::SetAnisotropy(int level) {
         gpu::BindingWrite write;
         write.set = set_;
         write.binding = 0;
-        write.type = gpu::BindingType::CombinedImageSampler;
+        write.type = device_->Info().backend == gpu::Backend::D3D12 ? gpu::BindingType::CombinedImageSampler
+                                                                    : gpu::BindingType::SampledImage;
         write.images = infos;
         device_->WriteBindings(std::span(&write, 1));
     }
-    if (device_->Info().backend == gpu::Backend::D3D12) {
-        gpu::BindingWrite write;
-        write.set = set_;
-        write.binding = 3;
-        write.type = gpu::BindingType::Sampler;
-        write.samplers = std::span(&sampler, 1);
-        device_->WriteBindings(std::span(&write, 1));
-    }
+    gpu::BindingWrite sampler_write;
+    sampler_write.set = set_;
+    sampler_write.binding = 3;
+    sampler_write.type = gpu::BindingType::Sampler;
+    sampler_write.samplers = std::span(&sampler, 1);
+    device_->WriteBindings(std::span(&sampler_write, 1));
     if (sampler_ != base_sampler_) {
         device_->DestroySampler(sampler_);
     }
@@ -586,7 +584,8 @@ uint32_t TextureManager::Create(const std::string& name, gpu::Format format, std
     writes[0].set = set_;
     writes[0].binding = 0;
     writes[0].first = index;
-    writes[0].type = gpu::BindingType::CombinedImageSampler;
+    writes[0].type = device_->Info().backend == gpu::Backend::D3D12 ? gpu::BindingType::CombinedImageSampler
+                                                                    : gpu::BindingType::SampledImage;
     writes[0].images = std::span(&image_info, 1);
     writes[1] = writes[0];
     writes[1].binding = 2;
@@ -921,7 +920,9 @@ void TextureManager::UpdateTextureDescriptor(uint32_t index) {
     const gpu::ImageBinding info{view.view, gpu::Layout::ShaderReadOnly, sampler_, &view};
     gpu::BindingWrite write;
     write.set = set_; write.binding = 0; write.first = index;
-    write.type = gpu::BindingType::CombinedImageSampler; write.images = std::span(&info, 1);
+    write.type = device_->Info().backend == gpu::Backend::D3D12 ? gpu::BindingType::CombinedImageSampler
+                                                                : gpu::BindingType::SampledImage;
+    write.images = std::span(&info, 1);
     device_->WriteBindings(std::span(&write, 1));
 }
 
