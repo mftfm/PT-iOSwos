@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_metal.h>
+void PTInitTouchGamepad(void);
 void PTAttachTouchControls(SDL_Window*);
 void PTIOSUseFullscreen(SDL_Window*);
 static UIView* Overlay(UIView* view) {
@@ -23,15 +24,17 @@ int main(int argc,char**argv) {
     PTIOSUseFullscreen(window);PTIOSUseFullscreen(window);
     int restored_w=0,restored_h=0;SDL_GetWindowSizeInPixels(window,&restored_w,&restored_h);
     Check(native_w==restored_w && native_h==restored_h,"restore fullscreen drawable after desktop resize");
-    PTAttachTouchControls(window);
-    UIView* initialOverlay=Overlay(native.rootViewController.view);
-    Check(initialOverlay!=nil,"initial overlay");
-    Check(!initialOverlay.isOpaque,"touch overlay must preserve transparency over Metal");
+    PTInitTouchGamepad();
+    Check(Overlay(native.rootViewController.view)==nil,"early gamepad setup must not add UIKit views");
+    int pre_surface_count=0;
+    SDL_JoystickID* pre_surface_ids=SDL_GetGamepads(&pre_surface_count);
+    Check(pre_surface_count==1,"virtual gamepad exists before Metal surface creation");
+    SDL_free(pre_surface_ids);
     UIView* before=native.rootViewController.view;
     SDL_MetalView metal=SDL_Metal_CreateView(window);
     Check(metal!=nullptr,"Metal surface");
     Check(native.rootViewController.view!=before,"test must replace root just like Vulkan");
-    Check(Overlay(native.rootViewController.view)==nil,"old overlay should be removed with old view");
+    Check(Overlay(native.rootViewController.view)==nil,"overlay must remain absent during SDL root replacement");
     PTAttachTouchControls(window);
     UIView* overlay=Overlay(native.rootViewController.view);
     Check(overlay!=nil,"overlay restored above Metal");
