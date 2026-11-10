@@ -1257,6 +1257,68 @@ void Renderer::PresentGeneratedFrame(Frame& frame, const vk::Image* source, VkSe
     }
 }
 
+
+void Renderer::LogRenderHealth(const char* reason) {
+#ifdef PT_IOS
+    if (!gpu_) return;
+    gpu_->WaitIdle();
+    struct TargetEntry {
+        const char* name;
+        gpu::ImageResource* image;
+        gpu::Layout layout;
+    };
+    const TargetEntry targets[] = {
+        {"scene_color", &scene_color_, gpu::Layout::ShaderReadOnly},
+        {"final_composite", &final_.image, gpu::Layout::ShaderReadOnly},
+        {"hdr_boost", &hdr_boost_, gpu::Layout::ShaderReadOnly},
+        {"swapchain_readback", &output_.image, gpu::Layout::TransferSrc}
+    };
+    for (const TargetEntry& entry : targets) {
+        if (!entry.image || !entry.image->Valid()) {
+            LogInfo("ios render health [{}]: {} is not allocated", reason ? reason : "unknown", entry.name);
+            continue;
+        }
+        gpu::RenderTarget target;
+        target.image = *entry.image;
+        target.layout = entry.layout;
+        target.aspect = gpu::Aspect::Color;
+        const gpu::FormatInfo format = gpu::Describe(target.image.format);
+        if (format.bytes == 0 || format.block) {
+            LogInfo("ios render health [{}]: {} format {} cannot be sampled by the diagnostic reader",
+                    reason ? reason : "unknown", entry.name, static_cast<uint32_t>(target.image.format));
+            continue;
+        }
+        std::vector<uint8_t> pixels;
+        if (!gpu_->ReadImage(target, pixels) || pixels.empty()) {
+            LogWarn("ios render health [{}]: {} readback failed", reason ? reason : "unknown", entry.name);
+            continue;
+        }
+        const uint64_t pixel_count = uint64_t(target.image.extent.width) * target.image.extent.height;
+        uint64_t nonzero_pixels = 0;
+        uint64_t nonzero_bytes = 0;
+        uint8_t max_byte = 0;
+        uint64_t sum_bytes = 0;
+        for (uint64_t pixel = 0; pixel < pixel_count; ++pixel) {
+            bool nonzero = false;
+            const size_t at = static_cast<size_t>(pixel * format.bytes);
+            for (uint32_t component = 0; component < format.bytes; ++component) {
+                const uint8_t value = pixels[at + component];
+                nonzero |= value != 0;
+                nonzero_bytes += value != 0 ? 1u : 0u;
+                max_byte = std::max(max_byte, value);
+                sum_bytes += value;
+            }
+            nonzero_pixels += nonzero ? 1u : 0u;
+        }
+        const double percent = pixel_count ? 100.0 * static_cast<double>(nonzero_pixels) / static_cast<double>(pixel_count) : 0.0;
+        const double mean = pixels.empty() ? 0.0 : static_cast<double>(sum_bytes) / static_cast<double>(pixels.size());
+        LogInfo("ios render health [{}]: {} {}x{} fmt {} bpp {} nonzero pixels {}/{} ({:.2f}%), nonzero bytes {}, max byte {}, mean byte {:.3f}",
+                reason ? reason : "unknown", entry.name, target.image.extent.width, target.image.extent.height,
+                static_cast<uint32_t>(target.image.format), format.bytes, nonzero_pixels, pixel_count, percent, nonzero_bytes, max_byte, mean);
+    }
+#endif
+}
+
 bool Renderer::SaveScreenshot(const std::filesystem::path& path, glm::vec4 crop) {
     if (!output_.image || !output_ready_) {
         LogError("screenshot {} not written: {}", pt::os::PathToUtf8(path), output_.image ? "no frame rendered yet" : "no capture image");
