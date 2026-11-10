@@ -675,6 +675,15 @@ bool Renderer::BeginFrame(bool present) {
         const VkResult acquire = ctx_.AcquireNextImage(frame.image_available, &image_index_);
         cpu_waits_.acquire_ms += wait_ms(std::chrono::steady_clock::now() - acquire_started).count();
         ctx_.CheckDeviceLost(acquire, "swapchain acquire");
+#ifdef PT_IOS
+        static uint32_t ios_acquire_logs = 0;
+        if ((acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR) || ios_acquire_logs < 12) {
+            ++ios_acquire_logs;
+            LogInfo("ios: vkAcquireNextImageKHR result {} ({}), image {}/{}, swapchain {}x{}",
+                    static_cast<int>(acquire), vk::ResultName(acquire), image_index_, ctx_.swapchain.images.size(),
+                    ctx_.swapchain.extent.width, ctx_.swapchain.extent.height);
+        }
+#endif
         if (acquire == VK_NOT_READY || acquire == VK_TIMEOUT) {
             return false;
         }
