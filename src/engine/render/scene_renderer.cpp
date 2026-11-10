@@ -1534,7 +1534,7 @@ void SceneRenderer::LogRenderHealth(const char* reason) {
     const TargetEntry targets[] = {
         {"albedo", &albedo_}, {"normal", &normal_}, {"material", &material_}, {"depth", &depth_},
         {"diffuse", &diffuse_}, {"specular", &specular_}, {"hdr", &hdr_}, {"ldr_a", &ldr_[0]},
-        {"ldr_b", &ldr_[1]}, {"flare", &flare_}, {"scene_color", nullptr}
+        {"ldr_b", &ldr_[1]}
     };
     LogInfo("ios render health [{}]: {} draws, {} lights, {} probes, {}x{} render, exposure {:.6f}",
             reason ? reason : "unknown", stats_.draws, stats_.lights, stats_.probes, output_extent_.width, output_extent_.height, exposure_);
