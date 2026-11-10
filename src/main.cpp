@@ -2,6 +2,7 @@
 #ifndef PT_IOS
 #include <SDL3/SDL_main.h>
 #else
+void PTInitTouchGamepad(void);
 void PTAttachTouchControls(SDL_Window* window);
 #include "../ios/input_display_policy.h"
 int PTIOSFrameLimit(int requested);
@@ -7525,7 +7526,9 @@ int main(int argc, char** argv) {
         }
         ApplyFullscreen(app);
 #ifdef PT_IOS
-        PTAttachTouchControls(app.window);
+        // Create the virtual pad early for controller enumeration, but leave UIKit's
+        // root view untouched until SDL has installed the Vulkan Metal-backed view.
+        PTInitTouchGamepad();
         int native_width=0,native_height=0;
         if (SDL_GetWindowSizeInPixels(app.window,&native_width,&native_height) && native_width>0 && native_height>0) {
             const double headroom_mb = pt::QuerySystemMemory().free_physical_mb;
