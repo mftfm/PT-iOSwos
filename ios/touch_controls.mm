@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <QuartzCore/CAMetalLayer.h>
 #include <SDL3/SDL.h>
 #include <cmath>
 #include "input_display_policy.h"
@@ -141,8 +142,22 @@ void PTAttachTouchControls(SDL_Window* window) {
     SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS,"0");
     if (!EnsureTouchGamepad()) return;
     UIWindow* uiwindow=(__bridge UIWindow*)SDL_GetPointerProperty(SDL_GetWindowProperties(window),SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER,nullptr);
+    if (!uiwindow) return;
     UIView* host=uiwindow.rootViewController.view;
-    if (!host) return;
+    // SDL_Vulkan_CreateSurface creates this CAMetalLayer-backed view and swaps
+    // it into the root controller. Do not attach an overlay to the temporary
+    // SDL_uikitview (or to a view still in a UIKit transition).
+    static bool logged_waiting_for_metal = false;
+    if (!host || host.window != uiwindow || ![host.layer isKindOfClass:CAMetalLayer.class]) {
+        if (!logged_waiting_for_metal) {
+            logged_waiting_for_metal = true;
+            SDL_Log("touch: waiting for SDL Metal root view (host %s, layer %s)",
+                    host ? NSStringFromClass(host.class).UTF8String : "(nil)",
+                    host ? NSStringFromClass(host.layer.class).UTF8String : "(nil)");
+        }
+        return;
+    }
+    logged_waiting_for_metal = false;
     CGRect full=uiwindow.windowScene.coordinateSpace.bounds;
     if (!CGRectIsEmpty(full) && !CGRectEqualToRect(uiwindow.frame,full)) {
         uiwindow.frame=full; SDL_Log("ios: restored fullscreen UIKit window");
