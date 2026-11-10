@@ -295,7 +295,8 @@ void Device::WriteBindings(std::span<const BindingWrite> writes) {
         } else {
             n.pImageInfo = images.data() + images.size();
             for (const ImageBinding& b : w.images) {
-                images.push_back({Native(b.sampler), Native(b.view), Native(b.layout)});
+                const VkSampler sampler = w.type == BindingType::CombinedImageSampler ? Native(b.sampler) : VK_NULL_HANDLE;
+                images.push_back({sampler, Native(b.view), Native(b.layout)});
             }
             n.descriptorCount = static_cast<uint32_t>(w.images.size());
         }
