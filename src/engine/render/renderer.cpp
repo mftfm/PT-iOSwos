@@ -1271,7 +1271,7 @@ void Renderer::LogRenderHealth(const char* reason) {
     // final_ and hdr_boost_ are not, so do not read them back through this path.
     const TargetEntry targets[] = {
         {"scene_color", &scene_color_, gpu::Layout::ShaderReadOnly},
-        {"swapchain_readback", &output_.image, gpu::Layout::TransferSrc}
+        {"swapchain_readback", &output_, gpu::Layout::TransferSrc}
     };
     for (const TargetEntry& entry : targets) {
         if (!entry.image || !entry.image->Valid()) {
