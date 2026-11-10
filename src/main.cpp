@@ -6692,6 +6692,10 @@ int RunGame(App& app, pt::Vfs& vfs) {
             static bool ios_render_capture_attempted = false;
             if (!ios_render_capture_attempted && frame >= 30) {
                 ios_render_capture_attempted = true;
+                // Read back the internal GPU stages before only looking at the final
+                // screenshot. The first all-zero target identifies the broken pass.
+                app.scene.LogRenderHealth("frame-30");
+                app.renderer.LogRenderHealth("frame-30");
                 const std::filesystem::path capture = UserDataDir() / "ios-render-check.png";
                 const bool saved = app.renderer.SaveScreenshot(capture);
                 pt::LogInfo("ios diagnostic: presented-image readback {} at {}",
