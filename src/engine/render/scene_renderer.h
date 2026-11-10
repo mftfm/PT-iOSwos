@@ -223,6 +223,7 @@ public:
     bool RayReconstructionAvailable(std::string& reason);
     void RequestTargetDump() { dump_requested_ = true; }
     bool DumpTargets(const std::string& prefix);
+    void LogRenderHealth(const char* reason);
     RayTracingSettings raytracing;
     bool RayTracingReady() const { return rt_ != nullptr; }
     bool RayTracingSupported(std::string& reason) const;
